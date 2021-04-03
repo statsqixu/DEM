@@ -113,7 +113,7 @@ class MCITR:
 
             cov_layers = covariate_embedding()
 
-            if self.layer_cov > 1:
+            if self.layer_cov > 0:
                 cov_encoder = keras.Model(inputs=cov_layers[0], outputs=cov_layers[-1])
 
             ## Stage 1 Model: fit the residuals with treatment and covariate embedding
@@ -123,12 +123,11 @@ class MCITR:
             model_s1 = keras.Model(inputs=[enc_layers[0], cov_layers[0]], 
                                    outputs=[dec_layers[-1], product])
 
-        
-            # define encoder
+            # define treatment encoder
             trt_encoder = keras.Model(inputs=trt_autoencoder.layers[0].input, 
                                       outputs=trt_autoencoder.layers[self.layer_enc].output)
 
-            # define decoder
+            # define treatment decoder
             restored_w = []
             for w in trt_autoencoder.layers[(self.layer_enc + 1): ]:
                 restored_w.extend(w.get_weights())
@@ -139,9 +138,9 @@ class MCITR:
             trt_decoder.set_weights(restored_w)
 
 
-            self.model_s1, self.trt_encoder, self.trt_decoder = model_s1, trt_encoder, trt_decoder
+            self.model_s1, self.trt_encoder, self.trt_decoder= model_s1, trt_encoder, trt_decoder
             
-            if self.layer_cov > 1:
+            if self.layer_cov > 0:
                 self.cov_encoder = cov_encoder
 
 
@@ -181,5 +180,40 @@ class MCITR:
         # stage 1 model:
         self.model_s1_define(input_dim)
         self.model_s1_fit(inputs, outputs, learning_rate, epochs)
+
+
+    def predict(self, X, A):
+
+        # treatment embeddings
+        if A.ndim == 1:
+            raise Exception("Treatment only has 1 channel.")
+
+        A_uni, indices = np.unique(A, axis=0, return_index=True)
+        A_embed_uni = self.trt_encoder.predict(A_uni)
+
+        # covariate embeddings
+        if self.layer_cov > 0:
+            cov_embed_vals = self.cov_encoder.predict(X)
+        else:
+            cov_embed_vals = X
+
+        # select the optimal treatment for each patient
+        if A_embed_uni.ndim == 1:
+            A_embed_uni = A_embed_uni[:, np.newaxis]
+        
+        if cov_embed_vals.ndim == 1:
+            cov_embed_vals = cov_embed_vals[:, np.newaxis]
+
+        self.trt_panel = cov_embed_vals.dot(A_embed_uni.transpose())
+
+        idx = np.argmax(self.trt_panel, axis=1)
+        
+        D = A[indices[idx], :]
+
+        return D
+
+
+
+
 
 

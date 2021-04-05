@@ -10,7 +10,7 @@ from sklearn.linear_model import LinearRegression
 class MCITR:
 
     def __init__(self, layer_enc=1, layer_dec=1, layer_cov=0, act_enc="linear", act_dec="linear", act_cov="linear", width_enc=None,
-                        width_dec=None, width_embed=None, width_cov=None, optimizer="sgd", initializer="glorot_uniform", verbose=0, bias_enc=True, bias_dec=True, bias_cov=True):
+                        width_dec=None, width_embed=None, width_cov=None, optimizer="adam", initializer="glorot_uniform", verbose=0, bias_enc=True, bias_dec=True, bias_cov=True):
 
         self.layer_enc, self.layer_dec = layer_enc, layer_dec # layer of encoder, decoder
         self.act_enc, self.act_dec = act_enc, act_dec # activation of encode, decoder
@@ -21,7 +21,7 @@ class MCITR:
         self.initializer = initializer
         self.verbose=verbose
 
-    def model_s1_define(self, input_dim):
+    def model_def(self, input_dim):
 
         ## Stage 1 Model, including autoencoder for treatment, encoder for covariates, and a whole model wrap everything
 
@@ -120,7 +120,7 @@ class MCITR:
 
             product = Dot(axes=1)([enc_layers[-1], cov_layers[-1]])
 
-            model_s1 = keras.Model(inputs=[enc_layers[0], cov_layers[0]], 
+            model = keras.Model(inputs=[enc_layers[0], cov_layers[0]], 
                                    outputs=[dec_layers[-1], product])
 
             # define treatment encoder
@@ -138,21 +138,22 @@ class MCITR:
             trt_decoder.set_weights(restored_w)
 
 
-            self.model_s1, self.trt_encoder, self.trt_decoder= model_s1, trt_encoder, trt_decoder
+            self.model, self.trt_encoder, self.trt_decoder= model, trt_encoder, trt_decoder
             
             if self.layer_cov > 0:
                 self.cov_encoder = cov_encoder
 
 
-    def model_s1_fit(self, inputs, outputs, learning_rate, epochs):
+    def model_fit(self, inputs, outputs, learning_rate, epochs):
         
         with tf.device("/CPU:0"):
 
             if self.optimizer == "sgd":
-                self.model_s1.compile(optimizer=keras.optimizers.SGD(learning_rate=learning_rate), loss=["binary_crossentropy", "mse"], loss_weights=[0.2, 0.8])
+                self.model.compile(optimizer=keras.optimizers.SGD(learning_rate=learning_rate), loss=["binary_crossentropy", "mse"], loss_weights=[0.2, 0.8])
             elif self.optimizer == "adam":
-                self.model_s1.compile(optimizer=keras.optimizers.Adam(learning_rate=learning_rate), loss=["binary_crossentropy", "mse"], loss_weights=[0.2, 0.8])
-            self.model_s1.fit(inputs, outputs, epochs=epochs, verbose=self.verbose)
+                self.model.compile(optimizer=keras.optimizers.Adam(learning_rate=learning_rate), loss=["binary_crossentropy", "mse"], loss_weights=[0.2, 0.8])
+
+            self.model.fit(inputs, outputs, epochs=epochs, verbose=self.verbose)
 
 
     def fit(self, Y, X, A, learning_rate, epochs, R=None):
@@ -177,19 +178,20 @@ class MCITR:
         inputs = [A, X]
         outputs = [A, R]
 
-        # stage 1 model:
-        self.model_s1_define(input_dim)
-        self.model_s1_fit(inputs, outputs, learning_rate, epochs)
+        # define and fit the model
+        self.model_def(input_dim)
+        self.model_fit(inputs, outputs, learning_rate, epochs)
+
+        # getting the treatment embeddings
+        trt_embed = self.trt_encoder.predict(A)
+        if self.width_embed > 1:
+            self.trt_embed_uni = np.unique(trt_embed, axis=0)
+        else:
+            self.trt_embed_uni = np.unique(trt_embed)
+            self.trt_embed_uni = self.trt_embed_uni[:, np.newaxis]
 
 
-    def predict(self, X, A):
-
-        # treatment embeddings
-        if A.ndim == 1:
-            raise Exception("Treatment only has 1 channel.")
-
-        A_uni, indices = np.unique(A, axis=0, return_index=True)
-        A_embed_uni = self.trt_encoder.predict(A_uni)
+    def predict(self, X):
 
         # covariate embeddings
         if self.layer_cov > 0:
@@ -197,18 +199,15 @@ class MCITR:
         else:
             cov_embed_vals = X
 
-        # select the optimal treatment for each patient
-        if A_embed_uni.ndim == 1:
-            A_embed_uni = A_embed_uni[:, np.newaxis]
-        
         if cov_embed_vals.ndim == 1:
             cov_embed_vals = cov_embed_vals[:, np.newaxis]
 
-        self.trt_panel = cov_embed_vals.dot(A_embed_uni.transpose())
+        # select the optimal treatment for each patient
+        trt_panel = cov_embed_vals.dot(self.trt_embed_uni.transpose())
 
-        idx = np.argmax(self.trt_panel, axis=1)
+        idx = np.argmax(trt_panel, axis=1)
         
-        D = A[indices[idx], :]
+        D = A[indices[idx], :] # recommended treatment
 
         return D
 

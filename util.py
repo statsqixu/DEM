@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from tensorflow import keras
 from tensorflow.keras.layers import Dense, Dot, Embedding, Input
+from tensorflow.keras import regularizers
 import tensorflow as tf
 import keras.backend as K
 from sklearn.linear_model import LinearRegression
@@ -10,13 +11,17 @@ from sklearn.linear_model import LinearRegression
 class MCITR:
 
     def __init__(self, layer_enc=1, layer_dec=1, layer_cov=0, act_enc="linear", act_dec="linear", act_cov="linear", width_enc=None,
-                        width_dec=None, width_embed=None, width_cov=None, optimizer="adam", initializer="glorot_uniform", verbose=0, bias_enc=True, bias_dec=True, bias_cov=True):
+                        width_dec=None, width_embed=None, width_cov=None, optimizer="sgd", initializer="glorot_uniform", verbose=0, 
+                        bias_enc=True, bias_dec=True, bias_cov=True, l1_enc=0, l2_enc=0, l1_dec=0, l2_dec=0, l1_cov=0, l2_cov=0):
 
         self.layer_enc, self.layer_dec = layer_enc, layer_dec # layer of encoder, decoder
         self.act_enc, self.act_dec = act_enc, act_dec # activation of encode, decoder
         self.width_enc, self.width_embed, self.width_dec = width_enc, width_embed, width_dec # width of encoder, decoder, embedding layers
         self.layer_cov, self.act_cov, self.width_cov = layer_cov, act_cov, width_cov # layer, activation and with for covariates embedding
         self.bias_enc, self.bias_dec, self.bias_cov = bias_enc, bias_dec, bias_cov
+        self.l1_enc, self.l2_enc = l1_enc, l2_enc
+        self.l1_dec, self.l2_dec = l1_dec, l2_dec
+        self.l1_cov, self.l2_cov = l1_cov, l2_cov
         self.optimizer = optimizer
         self.initializer = initializer
         self.verbose=verbose
@@ -44,14 +49,14 @@ class MCITR:
                     else:
                         for l in range(self.layer_enc - 1):
 
-                            trt = Dense(self.width_enc, activation=self.act_enc, kernel_initializer=self.initializer, use_bias=self.bias_enc, name="treatment_encoder_{0}".format(l + 1))(trt)
+                            trt = Dense(self.width_enc, activation=self.act_enc, kernel_initializer=self.initializer, use_bias=self.bias_enc, name="treatment_encoder_{0}".format(l + 1), kernel_regularizer=regularizers.l1_l2(l1=self.l1_enc, l2=self.l2_enc))(trt)
 
                             enc_layers.append(trt)
                 
                 if self.width_embed == None:
                     self.width_embed = cov_dim
                     
-                trt = Dense(self.width_embed, use_bias=self.bias_enc, kernel_initializer=self.initializer, name="treatment_embedding")(trt) # embedding layer
+                trt = Dense(self.width_embed, use_bias=self.bias_enc, kernel_initializer=self.initializer, name="treatment_embedding", kernel_regularizer=regularizers.l1_l2(l1=self.l1_enc, l2=self.l2_enc))(trt) # embedding layer
 
                 enc_layers.append(trt)
                 
@@ -69,11 +74,11 @@ class MCITR:
                     else:
                         for l in range(self.layer_dec - 1):
 
-                            trt = Dense(self.width_dec, activation=self.act_dec, kernel_initializer=self.initializer, use_bias=self.bias_dec, name="treatment_decoder_{0}".format(l + 1))(trt)
+                            trt = Dense(self.width_dec, activation=self.act_dec, kernel_initializer=self.initializer, use_bias=self.bias_dec, name="treatment_decoder_{0}".format(l + 1), kernel_regularizer=regularizers.l1_l2(l1=self.l1_dec, l2=self.l2_dec))(trt)
 
                             dec_layers.append(trt)
 
-                trt = Dense(trt_dim, activation="sigmoid", kernel_initializer=self.initializer, use_bias=self.bias_dec, name="treatment_output")(trt)
+                trt = Dense(trt_dim, activation="sigmoid", kernel_initializer=self.initializer, use_bias=self.bias_dec, name="treatment_output", kernel_regularizer=regularizers.l1_l2(l1=self.l1_dec, l2=self.l2_dec))(trt)
 
                 dec_layers.append(trt)
  
@@ -100,11 +105,11 @@ class MCITR:
                     else:
                         for l in range(self.layer_cov - 1):
 
-                            cov = Dense(self.width_cov, activation=self.act_cov, kernel_initializer=self.initializer, use_bias=self.bias_cov, name="covariate_encoder_{0}".format(l + 1))(cov)
+                            cov = Dense(self.width_cov, activation=self.act_cov, kernel_initializer=self.initializer, use_bias=self.bias_cov, name="covariate_encoder_{0}".format(l + 1), kernel_regularizer=regularizers.l1_l2(l1=self.l1_cov, l2=self.l2_cov))(cov)
 
                             cov_layers.append(cov)
                         
-                        cov = Dense(self.width_embed, kernel_initializer=self.initializer, use_bias=self.bias_cov, name="covariate_embedding")(cov)
+                        cov = Dense(self.width_embed, kernel_initializer=self.initializer, use_bias=self.bias_cov, name="covariate_embedding", kernel_regularizer=regularizers.l1_l2(l1=self.l1_cov, l2=self.l2_cov))(cov)
 
                         cov_layers.append(cov)
 
@@ -120,7 +125,7 @@ class MCITR:
 
             product = Dot(axes=1)([enc_layers[-1], cov_layers[-1]])
 
-            model = keras.Model(inputs=[enc_layers[0], cov_layers[0]], 
+            model_s1 = keras.Model(inputs=[enc_layers[0], cov_layers[0]], 
                                    outputs=[dec_layers[-1], product])
 
             # define treatment encoder
@@ -138,7 +143,7 @@ class MCITR:
             trt_decoder.set_weights(restored_w)
 
 
-            self.model, self.trt_encoder, self.trt_decoder= model, trt_encoder, trt_decoder
+            self.model_s1, self.trt_encoder, self.trt_decoder= model_s1, trt_encoder, trt_decoder
             
             if self.layer_cov > 0:
                 self.cov_encoder = cov_encoder
@@ -149,11 +154,10 @@ class MCITR:
         with tf.device("/CPU:0"):
 
             if self.optimizer == "sgd":
-                self.model.compile(optimizer=keras.optimizers.SGD(learning_rate=learning_rate), loss=["binary_crossentropy", "mse"], loss_weights=[0.2, 0.8])
+                self.model_s1.compile(optimizer=keras.optimizers.SGD(learning_rate=learning_rate), loss=["binary_crossentropy", "mse"], loss_weights=[0.2, 0.8])
             elif self.optimizer == "adam":
-                self.model.compile(optimizer=keras.optimizers.Adam(learning_rate=learning_rate), loss=["binary_crossentropy", "mse"], loss_weights=[0.2, 0.8])
-
-            self.model.fit(inputs, outputs, epochs=epochs, verbose=self.verbose)
+                self.model_s1.compile(optimizer=keras.optimizers.Adam(learning_rate=learning_rate), loss=["binary_crossentropy", "mse"], loss_weights=[0.2, 0.8])
+            self.model_s1.fit(inputs, outputs, epochs=epochs, verbose=self.verbose)
 
 
     def fit(self, Y, X, A, learning_rate, epochs, R=None):
@@ -178,20 +182,19 @@ class MCITR:
         inputs = [A, X]
         outputs = [A, R]
 
-        # define and fit the model
+        # stage 1 model:
         self.model_def(input_dim)
         self.model_fit(inputs, outputs, learning_rate, epochs)
 
-        # getting the treatment embeddings
-        trt_embed = self.trt_encoder.predict(A)
-        if self.width_embed > 1:
-            self.trt_embed_uni = np.unique(trt_embed, axis=0)
-        else:
-            self.trt_embed_uni = np.unique(trt_embed)
-            self.trt_embed_uni = self.trt_embed_uni[:, np.newaxis]
 
+    def predict(self, X, A):
 
-    def predict(self, X):
+        # treatment embeddings
+        if A.ndim == 1:
+            raise Exception("Treatment only has 1 channel.")
+
+        A_uni, indices = np.unique(A, axis=0, return_index=True)
+        A_embed_uni = self.trt_encoder.predict(A_uni)
 
         # covariate embeddings
         if self.layer_cov > 0:
@@ -199,15 +202,18 @@ class MCITR:
         else:
             cov_embed_vals = X
 
+        # select the optimal treatment for each patient
+        if A_embed_uni.ndim == 1:
+            A_embed_uni = A_embed_uni[:, np.newaxis]
+        
         if cov_embed_vals.ndim == 1:
             cov_embed_vals = cov_embed_vals[:, np.newaxis]
 
-        # select the optimal treatment for each patient
-        trt_panel = cov_embed_vals.dot(self.trt_embed_uni.transpose())
+        self.trt_panel = cov_embed_vals.dot(A_embed_uni.transpose())
 
-        idx = np.argmax(trt_panel, axis=1)
+        idx = np.argmax(self.trt_panel, axis=1)
         
-        D = A[indices[idx], :] # recommended treatment
+        D = A[indices[idx], :]
 
         return D
 

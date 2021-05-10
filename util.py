@@ -1,224 +1,358 @@
+import torch
+import torch.nn as nn 
+import torch.nn.functional as F 
+from torch.optim.lr_scheduler import ExponentialLR
+from torch.utils.data import Dataset, DataLoader
 import numpy as np 
-import matplotlib.pyplot as plt
-from tensorflow import keras
-from tensorflow.keras.layers import Dense, Dot, Embedding, Input
-from tensorflow.keras import regularizers
-import tensorflow as tf
-import keras.backend as K
+from sklearn.neural_network import MLPClassifier
 from sklearn.linear_model import LinearRegression
+import matplotlib.pyplot as plt
 
 
-class MCITR:
 
-    def __init__(self, layer_enc=1, layer_dec=1, layer_cov=0, act_enc="linear", act_dec="linear", act_cov="linear", width_enc=None,
-                        width_dec=None, width_embed=None, width_cov=None, optimizer="sgd", initializer="glorot_uniform", verbose=0, 
-                        bias_enc=True, bias_dec=True, bias_cov=True, l1_enc=0, l2_enc=0, l1_dec=0, l2_dec=0, l1_cov=0, l2_cov=0):
+# Define the network structure
 
-        self.layer_enc, self.layer_dec = layer_enc, layer_dec # layer of encoder, decoder
-        self.act_enc, self.act_dec = act_enc, act_dec # activation of encode, decoder
-        self.width_enc, self.width_embed, self.width_dec = width_enc, width_embed, width_dec # width of encoder, decoder, embedding layers
-        self.layer_cov, self.act_cov, self.width_cov = layer_cov, act_cov, width_cov # layer, activation and with for covariates embedding
-        self.bias_enc, self.bias_dec, self.bias_cov = bias_enc, bias_dec, bias_cov
-        self.l1_enc, self.l2_enc = l1_enc, l2_enc
-        self.l1_dec, self.l2_dec = l1_dec, l2_dec
-        self.l1_cov, self.l2_cov = l1_cov, l2_cov
-        self.optimizer = optimizer
-        self.initializer = initializer
-        self.verbose=verbose
+class EINet(nn.Module):
+    
+    def __init__(self, input_size, layer_trt=2, layer_cov=2, act_trt="linear", act_cov="linear", 
+                                   width_trt=20, width_cov=20, width_embed=5):
+
+        super(EINet, self).__init__()
+
+        trt_dim, cov_dim = input_size
+
+        self.layer_trt, self.layer_cov = layer_trt, layer_cov
+        self.act_trt, self.act_cov = act_trt, act_cov
+        self.width_trt, self.width_cov, self.width_embed = width_trt, width_cov, width_embed
+
+        # define treatment encoder
+
+        self.trt_input = nn.Linear(trt_dim, width_trt)
+
+        self.trt_hidden = nn.ModuleList()
+        for i in range(layer_trt):
+            self.trt_hidden.append(nn.Linear(width_trt, width_trt))
+            self.trt_hidden.append(nn.BatchNorm1d(num_features=width_trt))
+
+        self.trt_embed = nn.Linear(width_trt, width_embed)
+
+        # define covariate encoder
+
+        self.cov_input = nn.Linear(cov_dim, width_cov)
+
+        self.cov_hidden = nn.ModuleList()
+        for i in range(layer_cov):
+            self.cov_hidden.append(nn.Linear(width_cov, width_cov))
+            self.cov_hidden.append(nn.BatchNorm1d(num_features=width_cov))
+
+        self.cov_embed = nn.Linear(width_cov, width_embed)
+        
+    def weighted_mse_loss(self, input, target, weight):
+        
+        return (weight * (input - target) ** 2).mean()
+
+    def treatment_weights(self, A):
+
+        A_unique, A_inverse, A_count = torch.unique(A, return_counts=True, return_inverse=True, dim=0)
+        W_ = 1 / A_count
+        W = W_[A_inverse]
+        return W
+        
+        
+    def treatment_embed(self, A):
+        
+        # treatment encoding
+
+        trt = self.trt_input(A)
+        if self.act_trt == "relu":
+            trt = F.relu(trt)
+        elif self.act_trt == "linear":
+            trt = trt
+        
+        for index, layer in enumerate(self.trt_hidden):
+            if index % 2 == 0:
+                trt = layer(trt)
+                break
+            elif index % 2 == 1:
+                trt = layer(trt)
+                if self.act_trt == "relu":
+                    trt = F.relu(trt)
+                elif self.act_trt == "linear":
+                    trt = trt
+
+        trt = self.trt_embed(trt)
+
+        # centralize embedding to satisfy the constraints
+        weight = self.treatment_weights(A)
+        trt_w = torch.diag(weight).matmul(trt)
+        trt_mean = torch.mean(trt_w, dim=0)
+        
+        trt_embed = trt - trt_mean
+        
+        return trt_embed
+    
+    def covariate_embed(self, X):
+        
+        # covaraite encoding
+
+        cov = self.cov_input(X)
+        if self.act_cov == "relu":
+            cov = F.relu(cov)
+        elif self.act_cov == "linear":
+            cov = cov
+
+        for index, layer in enumerate(self.cov_hidden):
+            if index % 2 == 0:
+                cov = layer(cov)
+                break
+            elif index % 2 == 1:
+                cov = layer(cov)
+                if self.act_cov == "relu":
+                    cov = F.relu(cov)
+                elif self.act_cov == "linear":
+                    cov = cov
+
+        cov_embed = self.cov_embed(cov)
+
+        return cov_embed
+
+    def forward(self, X, A):
+
+        trt_embed = self.treatment_embed(A)
+        
+        cov_embed = self.covariate_embed(X)
+        
+        output = torch.sum(torch.mul(trt_embed, cov_embed), dim=1)
+
+        return output
+    
+    def training_step(self, batch):
+        
+        # load data
+        R, X, A, weight = batch
+        
+        # generate prediction
+        output = self(X, A)
+        
+        # calculate loss
+        loss = self.weighted_mse_loss(output, R, weight)
+        
+        return loss
+    
+    def epoch_end(self, epoch, result):
+        
+        print("Epoch: {} - Training Loss: {:.4f}".format(epoch, result))
+
+# Define the network trainer
+class Trainer():
+    
+    def fit(self, epochs, learning_rate, model, train_loader, print_history, opt_func, weight_decay):
+        
+        history = []
+        optimizer = opt_func(model.parameters(), learning_rate, weight_decay=weight_decay)
+        optimizer.zero_grad()
+        scheduler = ExponentialLR(optimizer, gamma=0.999)
+        
+        for epoch in range(epochs):
+            # training
+            for batch in train_loader:
+                loss = model.training_step(batch)
+                loss.backward()
+                optimizer.step()
+                optimizer.zero_grad()
+                scheduler.step()
+                
+            result = self._evaluate(model, train_loader)
+            if print_history:
+                model.epoch_end(epoch, result)
+            history.append(result)
+            
+        return history
+            
+    def _evaluate(self, model, train_loader):
+        
+        outputs = [model.training_step(batch) for batch in train_loader]
+        
+        return torch.stack(outputs).mean()
+
+# Define the dataset
+class ITRDataset(Dataset):
+    
+    def __init__(self, R, X, A, W):
+        
+        self.output, self.covariate, self.treatment, self.weight = R, X, A, W
+        
+    def __len__(self):
+        return len(self.output)
+    
+    def __getitem__(self, idx):
+        return self.output[idx], self.covariate[idx], self.treatment[idx], self.weight[idx]
+
+# some utility functions
+## plot training history  
+def plot_train_history(history):
+    
+    plt.plot(history, "-x")
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+
+
+
+class MCITR():
+
+    def __init__(self, layer_trt=2, layer_cov=2, act_trt="linear", act_cov="linear", width_trt=20, width_cov=20, width_embed=5, scenario="ct"):
+
+        self.layer_trt, self.layer_cov = layer_trt, layer_cov
+        self.act_trt, self.act_cov = act_trt, act_cov
+        self.width_trt, self.width_cov, self.width_embed = width_trt, width_cov, width_embed
+        self.scenario = scenario
 
     def model_def(self, input_dim):
 
-        ## Stage 1 Model, including autoencoder for treatment, encoder for covariates, and a whole model wrap everything
+        model = EINet(input_dim, self.layer_trt, self.layer_cov, self.act_trt, self.act_cov, self.width_trt, self.width_cov, self.width_embed)
 
-        trt_dim, cov_dim = input_dim # input_dim is a tuple
+        return model 
 
-        with tf.device("/CPU:0"):
-
-            def encoder():
-
-                enc_layers = []
-                
-                trt = Input(shape=(trt_dim, ), name="treatment_input")
-
-                enc_layers.append(trt)
-
-                if self.layer_enc > 1:
-
-                    if self.width_enc == None:
-                        raise Exception("Encoder width is not specified.")
-                    else:
-                        for l in range(self.layer_enc - 1):
-
-                            trt = Dense(self.width_enc, activation=self.act_enc, kernel_initializer=self.initializer, use_bias=self.bias_enc, name="treatment_encoder_{0}".format(l + 1), kernel_regularizer=regularizers.l1_l2(l1=self.l1_enc, l2=self.l2_enc))(trt)
-
-                            enc_layers.append(trt)
-                
-                if self.width_embed == None:
-                    self.width_embed = cov_dim
-                    
-                trt = Dense(self.width_embed, use_bias=self.bias_enc, kernel_initializer=self.initializer, name="treatment_embedding", kernel_regularizer=regularizers.l1_l2(l1=self.l1_enc, l2=self.l2_enc))(trt) # embedding layer
-
-                enc_layers.append(trt)
-                
-                
-                return enc_layers
-
-            def decoder(trt):
-
-                dec_layers = []
-
-                if self.layer_dec > 1:
-                    
-                    if self.width_dec == None:
-                        raise Exception("Decoder width is not specified.")
-                    else:
-                        for l in range(self.layer_dec - 1):
-
-                            trt = Dense(self.width_dec, activation=self.act_dec, kernel_initializer=self.initializer, use_bias=self.bias_dec, name="treatment_decoder_{0}".format(l + 1), kernel_regularizer=regularizers.l1_l2(l1=self.l1_dec, l2=self.l2_dec))(trt)
-
-                            dec_layers.append(trt)
-
-                trt = Dense(trt_dim, activation="sigmoid", kernel_initializer=self.initializer, use_bias=self.bias_dec, name="treatment_output", kernel_regularizer=regularizers.l1_l2(l1=self.l1_dec, l2=self.l2_dec))(trt)
-
-                dec_layers.append(trt)
- 
-                return dec_layers
-
-            # define autoencoder
-            enc_layers = encoder()
-            dec_layers = decoder(enc_layers[-1])
-            trt_autoencoder = keras.Model(inputs=enc_layers[0], outputs=dec_layers[-1])
-
-
-            def covariate_embedding():
-                
-                cov_layers = []
-
-                cov = Input(shape=(cov_dim, ), name="covariate_input")
-
-                cov_layers.append(cov)
-
-                if self.layer_cov > 0:
-
-                    if self.width_cov == None:
-                        raise Exception("Covariate embedding is not specified.")
-                    else:
-                        for l in range(self.layer_cov - 1):
-
-                            cov = Dense(self.width_cov, activation=self.act_cov, kernel_initializer=self.initializer, use_bias=self.bias_cov, name="covariate_encoder_{0}".format(l + 1), kernel_regularizer=regularizers.l1_l2(l1=self.l1_cov, l2=self.l2_cov))(cov)
-
-                            cov_layers.append(cov)
-                        
-                        cov = Dense(self.width_embed, kernel_initializer=self.initializer, use_bias=self.bias_cov, name="covariate_embedding", kernel_regularizer=regularizers.l1_l2(l1=self.l1_cov, l2=self.l2_cov))(cov)
-
-                        cov_layers.append(cov)
-
-
-                return cov_layers
-
-            cov_layers = covariate_embedding()
-
-            if self.layer_cov > 0:
-                cov_encoder = keras.Model(inputs=cov_layers[0], outputs=cov_layers[-1])
-
-            ## Stage 1 Model: fit the residuals with treatment and covariate embedding
-
-            product = Dot(axes=1)([enc_layers[-1], cov_layers[-1]])
-
-            model_s1 = keras.Model(inputs=[enc_layers[0], cov_layers[0]], 
-                                   outputs=[dec_layers[-1], product])
-
-            # define treatment encoder
-            trt_encoder = keras.Model(inputs=trt_autoencoder.layers[0].input, 
-                                      outputs=trt_autoencoder.layers[self.layer_enc].output)
-
-            # define treatment decoder
-            restored_w = []
-            for w in trt_autoencoder.layers[(self.layer_enc + 1): ]:
-                restored_w.extend(w.get_weights())
-
-            dec_input = Input(shape=(self.width_embed, ))
-            dec_layers = decoder(dec_input)
-            trt_decoder = keras.Model(inputs=dec_input, outputs=dec_layers[-1])
-            trt_decoder.set_weights(restored_w)
-
-
-            self.model_s1, self.trt_encoder, self.trt_decoder= model_s1, trt_encoder, trt_decoder
-            
-            if self.layer_cov > 0:
-                self.cov_encoder = cov_encoder
-
-
-    def model_fit(self, inputs, outputs, learning_rate, epochs):
-        
-        with tf.device("/CPU:0"):
-
-            if self.optimizer == "sgd":
-                self.model_s1.compile(optimizer=keras.optimizers.SGD(learning_rate=learning_rate), loss=["binary_crossentropy", "mse"], loss_weights=[0.2, 0.8])
-            elif self.optimizer == "adam":
-                self.model_s1.compile(optimizer=keras.optimizers.Adam(learning_rate=learning_rate), loss=["binary_crossentropy", "mse"], loss_weights=[0.2, 0.8])
-            self.model_s1.fit(inputs, outputs, epochs=epochs, verbose=self.verbose)
-
-
-    def fit(self, Y, X, A, learning_rate, epochs, R=None):
+    def fit(self, Y, X, A, epochs=100, learning_rate=1e-3, verbose=0, opt_func=torch.optim.Adam, weight_decay=0.01):
 
         if A.ndim == 1:
             raise Exception("Only one channel treatment.")
         elif A.ndim > 1:
             if X.ndim == 1:
                 input_dim = (A.shape[1], 1) 
+                X_ = X[:, np.newaxis]
             elif X.ndim > 1:
                 input_dim = (A.shape[1], X.shape[1])
+                X_ = X
 
-        if R is None:
-            # compute residuals
-            if X.ndim == 2:
-                lm = LinearRegression().fit(X, Y)
-                R = Y - lm.predict(X)
-            elif X.ndim == 1:
-                lm = LinearRegression().fit(X[:, np.newaxis], Y)
-                R = Y - lm.predict(X[:, np.newaxis])
+        sample_size = A.shape[0]
 
-        inputs = [A, X]
-        outputs = [A, R]
+        self.model = self.model_def(input_dim)
 
-        # stage 1 model:
-        self.model_def(input_dim)
-        self.model_fit(inputs, outputs, learning_rate, epochs)
+        # compute propensity score
+
+        if self.scenario == "ct":
+
+            W = np.ones((sample_size,))
+            self.prop = np.ones((sample_size, )) / (2 ** A.shape[1])
+
+        elif self.scenario == "os":
+
+            _, A_compact = np.unique(A, axis=0, return_inverse=True)
+            self.mlp = MLPClassifier(learning_rate="invscaling", max_iter=500)
+            self.mlp.fit(X_, A_compact)
+            prob = self.mlp.predict_proba(X_)
+            self.prop = prob[np.arange(sample_size), A_compact]
+
+            W = 1 / self.prop
+
+        # compute residuel 
+        linreg = LinearRegression()
+        linreg.fit(X_, Y, sample_weight=W)
+        R = Y - linreg.predict(X_)
+
+        # create dataset
+        R_tsr = torch.from_numpy(R).float()
+        X_tsr = torch.from_numpy(X).float()
+        A_tsr = torch.from_numpy(A).float()
+        W_tsr = torch.from_numpy(W).float()
+
+        dataset = ITRDataset(R_tsr, X_tsr, A_tsr, W_tsr)
+
+        loader = DataLoader(dataset, batch_size=sample_size)
+
+        if verbose == 0:
+            print_history = False
+            plot_history = False
+        elif verbose == 1:
+            print_history = True
+            plot_history = False
+        elif verbose == 2:
+            print_history = False
+            plot_history = True
+        elif verbose == 3:
+            print_history = True
+            plot_history = True
+
+        trainer = Trainer()
+        history = []
+        history += trainer.fit(epochs=epochs, learning_rate=learning_rate, model=self.model, train_loader=loader, 
+                                print_history=print_history, opt_func=opt_func, weight_decay=weight_decay)
+
+        if plot_history:
+            plot_train_history(history)
+
+        return history
 
 
     def predict(self, X, A):
 
-        # treatment embeddings
-        if A.ndim == 1:
-            raise Exception("Treatment only has 1 channel.")
+        X_tsr = torch.from_numpy(X).float()
+        A_tsr = torch.from_numpy(A).float()
 
-        A_uni, indices = np.unique(A, axis=0, return_index=True)
-        A_embed_uni = self.trt_encoder.predict(A_uni)
-
-        # covariate embeddings
-        if self.layer_cov > 0:
-            cov_embed_vals = self.cov_encoder.predict(X)
-        else:
-            cov_embed_vals = X
-
-        # select the optimal treatment for each patient
-        if A_embed_uni.ndim == 1:
-            A_embed_uni = A_embed_uni[:, np.newaxis]
+        A_unique = torch.unique(A_tsr, dim=0)
+        cov_embed = self.model.covariate_embed(X_tsr)
+        trt_embed = self.model.treatment_embed(A_unique)
         
-        if cov_embed_vals.ndim == 1:
-            cov_embed_vals = cov_embed_vals[:, np.newaxis]
-
-        self.trt_panel = cov_embed_vals.dot(A_embed_uni.transpose())
-
-        idx = np.argmax(self.trt_panel, axis=1)
+        trt_panel = torch.matmul(cov_embed, torch.transpose(trt_embed, 0, 1))
         
-        D = A[indices[idx], :]
+        idx = torch.argmax(trt_panel, dim=1)
+        
+        D = A_unique[idx]
 
-        return D
+        return D.numpy()    
+
+    def evaluate(self, Y, A, X, D, optA, accuracy=True, value=True):
+
+        Y = torch.from_numpy(Y).float()
+        A = torch.from_numpy(A).float()
+        D = torch.from_numpy(D).float()
+        optA = torch.from_numpy(optA).float()
+
+        sample_size = len(Y)
+
+        if self.scenario == "ct":
+            W = np.ones((sample_size,))
+            prop = np.ones((sample_size, )) / (2 ** A.shape[1])
+        elif self.scenario == "os":
+            _, A_compact = np.unique(A, axis=0, return_inverse=True)
+            prob = self.mlp.predict_proba(X)
+            prop = prob[np.arange(sample_size), A_compact]
+
+
+        output = []
+        if accuracy:
+
+            acc = torch.mean(torch.all(D == optA, dim=1) * 1.0)
+            output.append(acc.numpy())
+
+        if value:
+
+            nom = torch.sum(torch.all(D == A, dim=1) * Y / prop) / sample_size
+            den = torch.sum(torch.all(D == A, dim=1) * 1.0 / prop) / sample_size
+
+            val = nom / den
+            output.append(val.numpy())
+            #output.append(nom.numpy())
+            #output.append(den.numpy())
+        return output
 
 
 
 
 
 
+
+
+        
+
+
+
+
+
+
+
+
+
+
+    

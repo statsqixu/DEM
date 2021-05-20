@@ -56,7 +56,15 @@ class EINet(nn.Module):
         A_unique, A_inverse, A_count = torch.unique(A, return_counts=True, return_inverse=True, dim=0)
         W_ = 1 / A_count
         W = W_[A_inverse]
-        return W
+
+        num_channels = len(A_unique)
+        num_samples = len(A)
+        W_mat = torch.zeros((num_channels, num_samples))
+
+        for i in range(num_channels):
+            W_mat[i, A_inverse == i] = W[A_inverse == i]
+
+        return W_mat
         
         
     def treatment_embed(self, A):
@@ -84,7 +92,7 @@ class EINet(nn.Module):
 
         # centralize embedding to satisfy the constraints
         weight = self.treatment_weights(A)
-        trt_w = torch.diag(weight).matmul(trt)
+        trt_w = weight.matmul(trt)
         trt_mean = torch.mean(trt_w, dim=0)
         
         trt_embed = trt - trt_mean
@@ -146,7 +154,7 @@ class EINet(nn.Module):
 # Define the network trainer
 class Trainer():
     
-    def fit(self, epochs, learning_rate, model, train_loader, print_history, opt_func, weight_decay):
+    def fit(self, epochs, learning_rate, model, train_loader, print_history, opt_func, weight_decay, device):
         
         history = []
         optimizer = opt_func(model.parameters(), learning_rate, weight_decay=weight_decay)
@@ -156,22 +164,26 @@ class Trainer():
         for epoch in range(epochs):
             # training
             for batch in train_loader:
+                batch = [item.to(device) for item in batch]
                 loss = model.training_step(batch)
                 loss.backward()
                 optimizer.step()
                 optimizer.zero_grad()
                 scheduler.step()
                 
-            result = self._evaluate(model, train_loader)
+            result = self._evaluate(model, train_loader, device)
             if print_history:
                 model.epoch_end(epoch, result)
             history.append(result)
             
         return history
             
-    def _evaluate(self, model, train_loader):
+    def _evaluate(self, model, train_loader, device):
         
-        outputs = [model.training_step(batch) for batch in train_loader]
+        outputs = []
+        for batch in train_loader:
+            batch = [item.to(device) for item in batch]
+            outputs.append(model.training_step(batch))
         
         return torch.stack(outputs).mean()
 
@@ -213,7 +225,17 @@ class MCITR():
 
         return model 
 
-    def fit(self, Y, X, A, epochs=100, learning_rate=1e-3, verbose=0, opt_func=torch.optim.Adam, weight_decay=0.01):
+    def fit(self, Y, X, A, epochs=100, learning_rate=1e-3, verbose=0, opt_func=torch.optim.Adam, weight_decay=0.01, batch_size=32, device="default"):
+
+        if device == "default":
+            use_cuda = torch.cuda.is_available()
+            device = torch.device("cuda:0" if use_cuda else "cpu")
+        elif device == "cpu":
+            device = "cpu"
+        elif device == "gpu":
+            device = "cuda:0"
+
+        self.device = device
 
         if A.ndim == 1:
             raise Exception("Only one channel treatment.")
@@ -228,6 +250,7 @@ class MCITR():
         sample_size = A.shape[0]
 
         self.model = self.model_def(input_dim)
+        self.model = self.model.to(device)
 
         # compute propensity score
 
@@ -235,6 +258,8 @@ class MCITR():
 
             W = np.ones((sample_size,))
             self.prop = np.ones((sample_size, )) / (2 ** A.shape[1])
+
+            W = 1 / self.prop
 
         elif self.scenario == "os":
 
@@ -259,7 +284,7 @@ class MCITR():
 
         dataset = ITRDataset(R_tsr, X_tsr, A_tsr, W_tsr)
 
-        loader = DataLoader(dataset, batch_size=sample_size)
+        loader = DataLoader(dataset, batch_size=batch_size)
 
         if verbose == 0:
             print_history = False
@@ -277,7 +302,7 @@ class MCITR():
         trainer = Trainer()
         history = []
         history += trainer.fit(epochs=epochs, learning_rate=learning_rate, model=self.model, train_loader=loader, 
-                                print_history=print_history, opt_func=opt_func, weight_decay=weight_decay)
+                                print_history=print_history, opt_func=opt_func, weight_decay=weight_decay, device=self.device)
 
         if plot_history:
             plot_train_history(history)
@@ -287,8 +312,8 @@ class MCITR():
 
     def predict(self, X, A):
 
-        X_tsr = torch.from_numpy(X).float()
-        A_tsr = torch.from_numpy(A).float()
+        X_tsr = torch.from_numpy(X).float().to(self.device)
+        A_tsr = torch.from_numpy(A).float().to(self.device)
 
         A_unique = torch.unique(A_tsr, dim=0)
         cov_embed = self.model.covariate_embed(X_tsr)
@@ -300,7 +325,7 @@ class MCITR():
         
         D = A_unique[idx]
 
-        return D.numpy()    
+        return D.cpu().numpy()    
 
     def evaluate(self, Y, A, X, D, optA, accuracy=True, value=True):
 

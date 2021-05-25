@@ -350,15 +350,15 @@ class MCITR():
                             self.act_cov, self.width_trt, 
                             self.width_cov, self.width_embed)
 
-        self.model = self.model.to(device)
+        self.model = self.model.to(self.device)
 
         # compute propensity score
 
-        if self.scenario == "ct":
+        if scenario == "ct":
 
             W = np.ones((n_samples,))
 
-        elif self.scenario == "os":
+        elif scenario == "os":
 
             A_cate = _categorical_treatment(A)
             prop, prop_model = _propensity_score(X, A_cate)
@@ -440,7 +440,7 @@ class MCITR():
 
         return D.cpu().numpy()    
 
-    def evaluate(self, Y, A, D, X=None, optA=None, accuracy=True, value=True):
+    def evaluate(self, Y, A, D, X=None, optA=None, scenario="ct", accuracy=True, value=True):
 
         """
         Evaluate a given treatment rule
@@ -482,11 +482,11 @@ class MCITR():
         
         n_samples = len(Y)
 
-        if self.scenario == "ct":
+        if scenario == "ct":
 
             prop = np.ones((n_samples,))
             
-        elif self.scenario == "os":
+        elif scenario == "os":
 
             if X is None:
 
@@ -553,10 +553,14 @@ class MCITR():
         """
 
         X_tsr = torch.from_numpy(X).float()
-        A_tsr = torch.from_numpy(A).float()
+        X_tsr = X_tsr.to(self.device)
 
-        alphas = self.model.covariate_embed(X_tsr).detach().numpy() # covariate embedding
-        betas = self.model.treatment_embed(A_tsr).detach().numpy() # treatment embedding
+        A_unique = np.unique(A, axis=0)
+        A_tsr = torch.from_numpy(A_unique).float()
+        A_tsr = A_tsr.to(self.device)
+
+        alphas = self.model.covariate_embed(X_tsr).detach().cpu().numpy() # covariate embedding
+        betas = self.model.treatment_embed(A_tsr).detach().cpu().numpy() # treatment embedding
 
         n_embedding = alphas.shape[1]
 
@@ -582,7 +586,7 @@ class MCITR():
 
                 # if not, find a rotation that maximize its value under the constraint
                 else:
-                    loss = _create_loss_individual(alpha, betas, cost, budget)
+                    loss = _create_loss_individual(alpha, betas, cost, budget, lambda_1, lambda_2)
                     manifold = Rotations(n_embedding)
                     problem = Problem(manifold, loss, verbosity=0)
                     solver = SteepestDescent(maxiter=50)
@@ -602,7 +606,7 @@ class MCITR():
 
             n_samples = alphas.shape[0]
 
-            subject_rotations = [np.eye(n_embedding)] * n_embedding
+            subject_rotations = [np.eye(n_embedding)] * n_samples
 
             alphas_rotate = np.zeros((n_samples, n_embedding))
 
@@ -616,10 +620,10 @@ class MCITR():
 
                 for i in range(n_samples):
 
-                    alpha = alphas_rotate[i]
+                    alpha = alphas[i]
                     alphas_r = alphas_rotate[np.delete(np.arange(n_samples), i), :]
 
-                    loss = _create_loss_population(alpha, alphas_r, betas, cost, budgets)
+                    loss = _create_loss_population(alpha, alphas_r, betas, cost, budgets, lambda_1, lambda_2)
                     manifold = Rotations(n_embedding)
                     problem = Problem(manifold, loss, verbosity=0)
                     solver = SteepestDescent(maxiter=5)

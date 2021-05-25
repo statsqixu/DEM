@@ -59,11 +59,17 @@ class EINet(nn.Module):
         W_ = 1 / A_count
         W = W_[A_inverse]
 
-        num_channels = len(A_unique)
-        num_samples = len(A)
-        W_mat = torch.zeros((num_channels, num_samples))
+        n_combinations = A_unique.shape[0]
+        n_samples = A.shape[0]
 
-        for i in range(num_channels):
+        device = W.get_device()
+        if device == -1:
+            device = "cpu"
+        W_mat = torch.zeros((n_combinations, n_samples))
+        W_mat = W_mat.to(device)
+
+        for i in range(n_combinations):
+
             W_mat[i, A_inverse == i] = W[A_inverse == i]
 
         return W_mat

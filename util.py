@@ -1,4 +1,4 @@
- import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 
 # some utility functions
 ## plot training history  

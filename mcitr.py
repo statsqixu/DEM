@@ -1,0 +1,639 @@
+"""
+Multi-channel Individualized Treatment Rule
+"""
+
+# Author: Qi Xu <qxu6@uci.edu>
+
+import autograd.numpy as anp
+import autograd.scipy as asp
+
+import pymanopt
+from pymanopt import Problem
+from pymanopt.manifolds import Rotations
+from pymanopt.solvers import SteepestDescent
+
+import torch
+from torch.utils.data import DataLoader
+
+from torch.optim import Adam
+
+import numpy as np 
+from sklearn.neural_network import MLPClassifier
+from sklearn.linear_model import LinearRegression
+import matplotlib.pyplot as plt
+
+from util import plot_train_history
+from network import EINet, Trainer
+from container import ITRDataset
+
+
+## some helper function for MCITR
+
+def _propensity_score(X, A, save_model=True):
+
+    """
+    Compute propensity score for observational study
+    using MLP classifier
+
+    X: covariates, 2d array
+    A: assigned treatment, in categorical coding: 0, 1, 2, ...
+    """
+
+    n_sample, n_feature = X.shape
+
+    mlp = MLPClassifier()
+    mlp.fit(X, A)
+
+    prob = mlp.predict_proba(X) # probability
+    prop = prob[np.arange(n_sample), A]
+
+    if save_model is True:
+
+        return prop, mlp
+
+    else:
+
+        return prop
+
+def _residual(Y, X, weight=None):
+
+    linreg = LinearRegression()
+    linreg.fit(X, Y, sample_weight=weight)
+    residual = Y - linreg.predict(X)
+
+    return residual
+
+
+def _check_covariate(X):
+
+    """
+    Check whether covariate is 2d array,
+    if not, add an extra axis
+
+    X: covariates: 1d/2d
+    """
+
+    if X.ndim == 1:
+
+        X = X[:, np.newaxis]
+
+    return X
+
+def _check_treatment(A):
+
+    """
+    Check whether treatment is multi-channel,
+    if not, raise exception
+
+    A: treatment: binary coding
+    """
+
+    if A.ndim == 1:
+
+        raise Exception("Input treatment only has one channel.")
+
+    else:
+
+        return A
+
+
+def _categorical_treatment(A):
+
+    """
+    Create categorical representation of multi-channel treatment
+    """
+
+    _, A_cate = np.unique(A, return_inverse=True, axis=0)
+
+    return A_cate
+
+
+def _return_device(device):
+
+    if device == "cpu":
+
+        return "cpu"
+
+    elif device == "gpu":
+
+        return "cuda:0"
+
+    elif device == "default":
+
+        if torch.cuda.is_available():
+            return "cuda:0"
+
+        else:
+            return "cpu"
+
+
+def _create_loss_individual(alpha, betas, cost, budget, lambda_1, lambda_2):
+
+    """
+    create loss function for individual-level budget constrained problem
+
+    Parameters
+    ----------
+    alpha: array-like of shape (n_samples, n_embedding)
+        covariate embedding 
+
+    betas: array-like of shape (n_combinations, n_embedding)
+        unique treatment embedding
+
+    cost: array-like of shape (n_combinations, )
+        cost for each treatment combination
+
+    budget: array-like of shape (n_samples, )
+        cost budget for each subject
+
+    lambda_1: float, default=0.1
+        penalty_coefficient for identity constraint
+
+    lambda_2: float, default=1000
+        peanlty_coefficient for unsatisification of budget constraint
+    """
+    
+    def loss(X):
+
+        I = anp.array([alpha.dot(X.transpose()).dot(beta.transpose()) for beta in betas])
+        
+        loss1 = - asp.special.logsumexp(I)
+        penalty1 =  - lambda_1 * alpha.dot(X.transpose()).dot(alpha.transpose()) / alpha.dot(alpha)
+        penalty2 = lambda_2 * anp.maximum(cost.dot(anp.exp(I) / anp.sum(anp.exp(I))) - budget, 0)
+
+        return loss1 + penalty1 + penalty2
+
+    return loss
+
+
+def _binary_panel(I):
+
+    I = np.exp(I) / np.sum(np.exp(I))
+    I_binary = I
+    I_binary[np.argmax(I)] = 1
+    I_binary[I_binary < 1] = 0
+
+    return I_binary
+
+
+def _create_loss_population(alpha, alphas_r, betas, cost, budget, lambda_1, lambda_2):
+
+    """
+    create loss function for population-level budget constrained problem
+
+    Parameters
+    ----------
+    alpha: array-like of shape (1, n_embedding)
+        covariate embedding 
+
+    alphas_r: array-like of shape (n_samples, n_embedding)
+        remaining rotated covaraite embedding in the population
+
+    betas: array-like of shape (n_combinations, n_embedding)
+        unique treatment embedding
+
+    cost: array-like of shape (n_combinations, )
+        cost for each treatment combination
+
+    budget: array-like of shape (n_samples, )
+        total cost budget within population
+
+    lambda_1: float, default=0.1
+        penalty_coefficient for identity constraint
+
+    lambda_2: float, default=1000
+        peanlty_coefficient for unsatisification of budget constraint
+    """
+
+    def loss(X):
+    
+        I = anp.array([alpha.dot(X.transpose()).dot(beta.transpose()) for beta in betas])
+
+        Is = anp.array(alphas_r.dot(betas.transpose()))
+
+        loss1 = - asp.special.logsumexp(I)
+        
+        penalty1 = -lambda_1 * alpha.dot(X.transpose()).dot(alpha.transpose()) / alpha.dot(alpha)
+        
+        cost1 = cost.dot(anp.exp(I) / anp.sum(anp.exp(I)))
+        cost2 = anp.sum((anp.exp(Is) / anp.sum(anp.exp(Is), axis=1)[:, anp.newaxis]).dot(cost))
+
+        penalty2 = lambda_2 * anp.maximum((cost1 + cost2 - budget), 0)
+
+        return loss1 + penalty1 + penalty2
+
+    return loss
+
+
+
+class MCITR():
+
+    """
+    Multi-Channel Individualized Treatment Rule
+
+    Estimate continuous representation in the latent space for treatment and subject 
+    pre-treatment covariates through two separate multi-layer perceptron, and model 
+    the residual as inner product between two latent embedding.
+
+    This class also implement subject-wise rotation to find sub-optimal treatment 
+    to satisfy the budget constraint.
+
+    Parameters
+    ----------
+    act_trt: {'relu', 'linear'}, default='relu'
+        activation function of treatment embedding network
+
+    act_cov: {'relu', 'linear'}, default='relu'
+        activation function of covariate embedding network
+
+    depth_trt: int, default=2
+        depth of treatment embedding network, excluding input layer
+
+    depth_cov: int, default=2
+        depth of covariate embedding network, excluding input layer
+
+    width_trt: int, default=10
+        width of treatment embedding network
+
+    width_cov: int, default=10
+        width of covariate embedding network
+
+    width_embed: int, default=5
+        width of last layers in both treatment and covariate embedding network
+
+    Attributes
+    ----------
+
+
+    Methods
+    ----------
+
+    """
+
+    def __init__(self, act_trt="relu", act_cov="relu", depth_trt=2, depth_cov=2, width_trt=20, width_cov=20, width_embed=5):
+        
+        self.act_trt = act_trt
+        self.act_cov = act_cov
+        self.depth_trt = depth_trt
+        self.depth_cov = depth_cov
+        self.width_trt = width_trt
+        self.width_cov = width_cov
+        self.width_embed = width_embed
+        
+
+    def fit(self, Y, X, A, scenario="ct", epochs=100, learning_rate=1e-3, verbose=0, opt_func=Adam, weight_decay=0.01, batch_size=32, device="default"):
+
+        """
+        Fit the model according to the given training data.
+
+        Parameters:
+
+        Y: array-like of shape (n_samples, )
+            outcome vector relative to X
+
+        X: array-like of shape (n_samples, n_features)
+            pre-treatment covariate
+
+        A: array-like of shape (n_samples, n_channels)
+            multi-channel treatment
+
+        scenario: {"ct", "os"}, default="ct"
+            problem scenario, if scnario="ct", propensity score 
+            will be treated as fixed and identical for each 
+            treatment combination; if scnario="os", propensity 
+            score will be estimated through a multilayer perceptron
+
+        epochs: int, default=100
+            training epochs for the network
+        
+        learning_rate: float, default=1e-3
+            learning rate for the network, learning rate will be decreased exponentially by a factor 0.999
+
+        opt_func: see torch.optim, default=Adam
+            optimiation algorithm for the network
+
+        verbose: {0, 1, 2, 3}, default=0
+            output status:
+                0: no output
+                1: output training loss history
+                2: plot training loss history
+                3: both 1 and 2
+
+        weight_decay: float, default=0.01
+            L2 penalty
+
+        batch_size: int, default=32
+            training batch size
+
+        device: {"default", "cpu", "gpu"}, default="default"
+            "default": use gpu if detected, otherwise use cpu
+            "cpu": specify to use cpu
+            "gpu": specify to use gpu
+
+        """
+
+        _device = _return_device(device)
+
+        print("--------- The program is running on {0}----------".format(_device))
+
+        self.device = _device
+
+        A = _check_treatment(A)
+
+        X = _check_covariate(X)
+
+        input_dim = (A.shape[1], X.shape[1])
+        n_samples = X.shape[0]
+
+        self.model = EINet(input_dim, self.depth_trt, 
+                            self.depth_cov, self.act_trt,
+                            self.act_cov, self.width_trt, 
+                            self.width_cov, self.width_embed)
+
+        self.model = self.model.to(device)
+
+        # compute propensity score
+
+        if self.scenario == "ct":
+
+            W = np.ones((n_samples,))
+
+        elif self.scenario == "os":
+
+            A_cate = _categorical_treatment(A)
+            prop, prop_model = _propensity_score(X, A_cate)
+
+            W = 1 / prop
+
+            self.prop_model = prop_model # used to predict propensity score for new data
+
+        R = _residual(Y, X, weight=W)
+
+        # create dataset to fit torch model
+        R_tsr = torch.from_numpy(R).float()
+        X_tsr = torch.from_numpy(X).float()
+        A_tsr = torch.from_numpy(A).float()
+        W_tsr = torch.from_numpy(W).float()
+
+        dataset = ITRDataset(R_tsr, X_tsr, A_tsr, W_tsr)
+
+        loader = DataLoader(dataset, batch_size=batch_size)
+
+        if verbose == 0:
+            print_history = False
+            plot_history = False
+        elif verbose == 1:
+            print_history = True
+            plot_history = False
+        elif verbose == 2:
+            print_history = False
+            plot_history = True
+        elif verbose == 3:
+            print_history = True
+            plot_history = True
+
+        trainer = Trainer()
+        history = []
+        history += trainer.fit(epochs=epochs, learning_rate=learning_rate, model=self.model, train_loader=loader, 
+                                print_history=print_history, opt_func=opt_func, weight_decay=weight_decay, device=self.device)
+
+        if plot_history:
+            plot_train_history(history)
+
+        return history
+
+
+    def predict(self, X, A):
+
+        """
+        Predict optimal multi-channel individualized treatment rule
+
+        The returned prediction is in binary coding
+
+        Parameters
+        ----------
+        X: array-like of shape (n_samples, n_features)
+            pre-treatment covariate
+
+        A: array-like of shape (n_samples, n_channels)
+            multi-channel treatment, only used to know which treatment
+            are being used
+
+        Returns
+        ---------
+        D: array-like of shape (n_samples, n_channels)
+            predicted optimal multi-channel treatment
+        """
+
+        X_tsr = torch.from_numpy(X).float().to(self.device)
+        A_tsr = torch.from_numpy(A).float().to(self.device)
+
+        A_unique = torch.unique(A_tsr, dim=0)
+        cov_embed = self.model.covariate_embed(X_tsr)
+        trt_embed = self.model.treatment_embed(A_unique)
+        
+        trt_panel = torch.matmul(cov_embed, torch.transpose(trt_embed, dim0=0, dim1=1))
+        
+        idx = torch.argmax(trt_panel, dim=1)
+        
+        D = A_unique[idx]
+
+        return D.cpu().numpy()    
+
+    def evaluate(self, Y, A, D, X=None, optA=None, accuracy=True, value=True):
+
+        """
+        Evaluate a given treatment rule
+
+        Parameters
+        ----------
+
+        Y: array-like of shape (n_samples, )
+            outcome vector relative to X
+
+        A: array-like of shape (n_samples, n_channels)
+            multi-channel treatment
+
+        D: array-like of shape (n_samples, n_channels)
+            multi-channel treatment need to be evaluated
+
+        X: array-like of shape (n_samples, n_features)
+            pre-treatment covariate, needed in the observational study scenario
+        
+        optA: array-like of shape (n_samples, n_channels)
+            optimal treatment rule, unknown in the real data 
+
+        accuracy: bool
+            whether or not to return accuracy 
+
+        value: bool
+            whether or not to return value function
+
+        Returns
+        ----------
+        output: list
+            may include value function, or accuracy, or both
+
+        """
+
+        Y = torch.from_numpy(Y).float()
+        A = torch.from_numpy(A).float()
+        D = torch.from_numpy(D).float()
+        
+        n_samples = len(Y)
+
+        if self.scenario == "ct":
+
+            prop = np.ones((n_samples,))
+            
+        elif self.scenario == "os":
+
+            if X is None:
+
+                raise Exception("pre-treatment covariates are unknown, propensity scores are not estimable.")
+
+            else: 
+
+                A_cate = _categorical_treatment(A)
+                prob = self.prop_model.predict_proba(X)
+                prop = prob[np.arange(n_samples), A_cate]
+
+
+        output = []
+        if accuracy:
+
+            if optA is None:
+                raise Exception("optimal assignment is unknown.")
+
+            else:
+                optA = torch.from_numpy(optA).float()
+                acc = torch.mean(torch.all(D == optA, dim=1) * 1.0)
+                output.append(acc.numpy())
+
+        if value:
+
+            nom = torch.sum(torch.all(D == A, dim=1) * Y / prop) / n_samples
+            den = torch.sum(torch.all(D == A, dim=1) * 1.0 / prop) / n_samples
+
+            val = nom / den
+            output.append(val.numpy())
+        
+        return output
+
+
+    def realign(self, X, A, cost, budgets, lambda_1=0.1, lambda_2=1000, budget_level="individual"):
+
+        """
+        Rotate covaraite embedding to satisfy the budget constraint
+
+        Parameters
+        -----------
+        X: array-like of shape (n_samples, n_features)
+            pre-treatment covariate
+
+        A: array-like of shape (n_combinations, n_channels)
+            multi-channel treatment
+
+        cost: array-like of shape (n_combinations, )
+            cost for each treatment combination
+
+        budgets: array-like of shape (n_samples, ) or float
+            if budget_level="individual", budgets include budget for each subject,
+            if budget_level="population", budgets is total budget over population
+
+        lambda_1: float, default=0.1
+            penalty_coefficient for identity constraint
+
+        lambda_2: float, default=1000
+            peanlty_coefficient for unsatisification of budget constraint
+
+        budget_level: {"individual", "population"}, default="individual"
+            cost budget type
+
+        """
+
+        X_tsr = torch.from_numpy(X).float()
+        A_tsr = torch.from_numpy(A).float()
+
+        alphas = self.model.covariate_embed(X_tsr).detach().numpy() # covariate embedding
+        betas = self.model.treatment_embed(A_tsr).detach().numpy() # treatment embedding
+
+        n_embedding = alphas.shape[1]
+
+        if budget_level == "individual":
+
+            treatment_realign = []
+            constraint_compliance = []
+
+            # iterater over all samples
+            for idx, alpha in enumerate(alphas):
+
+                budget = budgets[idx]
+
+                I = anp.array([alpha.dot(beta.transpose()) for beta in betas])
+                I_binary = _binary_panel(I)
+                satisfy = (cost.dot(I_binary) - budget < 0)
+
+                # first check whether the constraint is satisfied under optimal treatment
+                if satisfy:
+                    argm = np.argmax(I)
+                    treatment_realign.append(A[argm])
+                    constraint_compliance.append(satisfy)
+
+                # if not, find a rotation that maximize its value under the constraint
+                else:
+                    loss = _create_loss_individual(alpha, betas, cost, budget)
+                    manifold = Rotations(n_embedding)
+                    problem = Problem(manifold, loss, verbosity=0)
+                    solver = SteepestDescent(maxiter=50)
+                    sol = solver.solve(problem)
+                    argm = np.argmax(alpha.dot(sol.transpose()).dot(betas.transpose()))
+                    treatment_realign.append(A[argm])
+
+                    I = anp.array([alpha.dot(sol.transpose()).dot(beta.transpose()) for beta in betas])
+                    I_binary = _binary_panel(I)
+                    satisfy = (cost.dot(I_binary) - budget < 0)
+                    constraint_compliance.append(satisfy)
+
+                
+            return np.array(treatment_realign), np.array(constraint_compliance)
+
+        elif budget_level == "population":
+
+            n_samples = alphas.shape[0]
+
+            subject_rotations = [np.eye(n_embedding)] * n_embedding
+
+            alphas_rotate = np.zeros((n_samples, n_embedding))
+
+            for i in range(n_samples):
+
+                alphas_rotate[i, :] = alphas[i, :].dot(subject_rotations[i])
+            
+            iterations = 20
+
+            for iter in range(iterations):
+
+                for i in range(n_samples):
+
+                    alpha = alphas_rotate[i]
+                    alphas_r = alphas_rotate[np.delete(np.arange(n_samples), i), :]
+
+                    loss = _create_loss_population(alpha, alphas_r, betas, cost, budgets)
+                    manifold = Rotations(n_embedding)
+                    problem = Problem(manifold, loss, verbosity=0)
+                    solver = SteepestDescent(maxiter=5)
+                    sol = solver.solve(problem)
+                    
+                    subject_rotations[i] = sol
+                    alphas_rotate[i, :] = alphas[i].dot(sol.transpose())
+
+            trt_panel = alphas_rotate.dot(betas.transpose())
+
+            argm = np.argmax(trt_panel, axis=1)
+
+            treatment_realign = A[argm]
+
+            constraint_compliance = (np.sum(cost[argm]) < budgets)
+
+            return treatment_realign, constraint_compliance

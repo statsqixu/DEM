@@ -14,7 +14,21 @@ matplotlib	version 3.4.1
 
 - Demo
 ```
+from mcitr from MCITR
+import numpy as np
+import matplotlib.pyplot as plt
+import torch
+
 Y, X, A, optA = getdata(sample_size)
+
+mcitr = MCITR()
+history = mcitr.fit(Y, X, A, scenario="ct", verbose=1, device="cpu", epochs=100)
+
+D = mcitr.predict(X, A) # estimated MCITR
+
+value, accuracy = mcitr.evaluate(Y, A, D, optA=optA) # value function and accuracy of estimated MCITR
+
+D_bc = mcitr.realign(X, A, cost, budget, budget_level="population") # estimated MCITR after rotation to satisfy budget constraint
 ```
 
 - Done

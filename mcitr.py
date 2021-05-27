@@ -21,6 +21,7 @@ import numpy as np
 from sklearn.neural_network import MLPClassifier
 from sklearn.linear_model import LinearRegression
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 
 from util import plot_train_history
 from network import EINet, Trainer
@@ -521,7 +522,7 @@ class MCITR():
         return output
 
 
-    def realign(self, X, A, cost, budgets, lambda_1=0.1, lambda_2=1000, budget_level="individual"):
+    def realign(self, X, A, cost, budgets, lambda_1=1, lambda_2=1000, budget_level="individual"):
 
         """
         Rotate covaraite embedding to satisfy the budget constraint
@@ -553,14 +554,23 @@ class MCITR():
         """
 
         X_tsr = torch.from_numpy(X).float()
-        X_tsr = X_tsr.to(self.device)
+        if self.device == "gpu":
+            X_tsr = X_tsr.to(self.device)
 
         A_unique = np.unique(A, axis=0)
         A_tsr = torch.from_numpy(A_unique).float()
-        A_tsr = A_tsr.to(self.device)
+        if self.device == "gpu":
+            A_tsr = A_tsr.to(self.device)
 
-        alphas = self.model.covariate_embed(X_tsr).detach().cpu().numpy() # covariate embedding
-        betas = self.model.treatment_embed(A_tsr).detach().cpu().numpy() # treatment embedding
+        if self.device == "gpu":
+
+            alphas = self.model.covariate_embed(X_tsr).detach().cpu().numpy() # covariate embedding
+            betas = self.model.treatment_embed(A_tsr).detach().cpu().numpy() # treatment embedding
+
+        else:
+
+            alphas = self.model.covariate_embed(X_tsr).detach().numpy() # covariate embedding
+            betas = self.model.treatment_embed(A_tsr).detach().numpy() # treatment embedding
 
         n_embedding = alphas.shape[1]
 
@@ -570,7 +580,7 @@ class MCITR():
             constraint_compliance = []
 
             # iterater over all samples
-            for idx, alpha in enumerate(alphas):
+            for idx, alpha in tqdm(enumerate(alphas), ncols=100):
 
                 budget = budgets[idx]
 
@@ -581,22 +591,29 @@ class MCITR():
                 # first check whether the constraint is satisfied under optimal treatment
                 if satisfy:
                     argm = np.argmax(I)
-                    treatment_realign.append(A[argm])
+                    treatment_realign.append(A_unique[argm])
                     constraint_compliance.append(satisfy)
 
                 # if not, find a rotation that maximize its value under the constraint
                 else:
-                    loss = _create_loss_individual(alpha, betas, cost, budget, lambda_1, lambda_2)
-                    manifold = Rotations(n_embedding)
-                    problem = Problem(manifold, loss, verbosity=0)
-                    solver = SteepestDescent(maxiter=50)
-                    sol = solver.solve(problem)
-                    argm = np.argmax(alpha.dot(sol.transpose()).dot(betas.transpose()))
-                    treatment_realign.append(A[argm])
+                    time = 0
+                    while not satisfy: 
+                        loss = _create_loss_individual(alpha, betas, cost, budget, lambda_1, lambda_2)
+                        manifold = Rotations(n_embedding)
+                        problem = Problem(manifold, loss, verbosity=0)
+                        solver = SteepestDescent(maxiter=50)
+                        sol = solver.solve(problem)
 
-                    I = anp.array([alpha.dot(sol.transpose()).dot(beta.transpose()) for beta in betas])
-                    I_binary = _binary_panel(I)
-                    satisfy = (cost.dot(I_binary) - budget < 0)
+                        I = anp.array([alpha.dot(sol.transpose()).dot(beta.transpose()) for beta in betas])
+                        I_binary = _binary_panel(I)
+                        satisfy = (cost.dot(I_binary) - budget < 0)
+                        
+                        time = time + 1
+                        if time > 5:
+                            break
+
+                    argm = np.argmax(alpha.dot(sol.transpose()).dot(betas.transpose()))
+                    treatment_realign.append(A_unique[argm])
                     constraint_compliance.append(satisfy)
 
                 
@@ -636,7 +653,7 @@ class MCITR():
 
             argm = np.argmax(trt_panel, axis=1)
 
-            treatment_realign = A[argm]
+            treatment_realign = A_unique[argm]
 
             constraint_compliance = (np.sum(cost[argm]) < budgets)
 

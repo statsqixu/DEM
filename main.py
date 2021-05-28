@@ -1,3 +1,4 @@
+from tabnanny import verbose
 from util import getdata
 from mcitr import MCITR
 import numpy as np
@@ -7,7 +8,7 @@ import numpy as np
 
 def demo():
 
-    Y, X, A, optA = getdata(20, case=1)
+    Y, X, A, optA = getdata(200, case=1, seed=1)
 
     mcitr = MCITR(width_embed=2)
     history = mcitr.fit(Y, X, A, device="cpu", verbose=0, epochs=200)
@@ -18,19 +19,15 @@ def demo():
     print("----accuracy: {0}----".format(accuracy))
     print("----value: {0}----".format(value))
 
-    cost = np.array([0, 10, 20, 30])
+    cost = np.array([0, 1, 0, 1])
+    budgets = 50
 
-    budgets = np.random.uniform(low=25, high=40, size=(20, ))
+    D = mcitr.realign_mckp(X, A, cost = cost, budget=budgets)
 
-    D1, comp = mcitr.realign(X, A, cost = cost, budgets=budgets, lambda_1=0.05, budget_level="individual")
-    print("----Compliance: {0}----".format(np.sum(comp) / 20))
-
-    accuracy, value = mcitr.evaluate(Y, A, D1, X, optA)
+    accuracy, value = mcitr.evaluate(Y, A, D, X, optA)
 
     print("----accuracy: {0}----".format(accuracy))
     print("----value: {0}----".format(value))
-
-
 
 if __name__ == "__main__":
 

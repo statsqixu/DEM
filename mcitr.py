@@ -26,6 +26,7 @@ from tqdm import tqdm
 from util import plot_train_history
 from network import EINet, Trainer
 from container import ITRDataset
+from mckp import _mckp
 
 
 ## some helper function for MCITR
@@ -213,6 +214,7 @@ def _create_loss_population(alpha, alphas_r, betas, cost, budget, lambda_1, lamb
         Is = anp.array(alphas_r.dot(betas.transpose()))
 
         loss1 = - asp.special.logsumexp(I)
+        loss2 = - anp.sum(asp.special.logsumexp(Is, axis=1))
         
         penalty1 = -lambda_1 * alpha.dot(X.transpose()).dot(alpha.transpose()) / alpha.dot(alpha)
         
@@ -221,7 +223,7 @@ def _create_loss_population(alpha, alphas_r, betas, cost, budget, lambda_1, lamb
 
         penalty2 = lambda_2 * anp.maximum((cost1 + cost2 - budget), 0)
 
-        return loss1 + penalty1 + penalty2
+        return loss1 + loss2 + penalty1 + penalty2
 
     return loss
 
@@ -522,36 +524,51 @@ class MCITR():
         return output
 
 
-    def realign(self, X, A, cost, budgets, lambda_1=1, lambda_2=1000, budget_level="individual"):
+    def realign_random(self, X, A, cost, budgets):
 
         """
-        Rotate covaraite embedding to satisfy the budget constraint
+        Random select samples to assign treatment to satisfy the budget constraint
 
         Parameters
-        -----------
+        ----------
         X: array-like of shape (n_samples, n_features)
             pre-treatment covariate
 
-        A: array-like of shape (n_combinations, n_channels)
+        A: array-like of shape (n_samples, n_channels)
             multi-channel treatment
 
-        cost: array-like of shape (n_combinations, )
-            cost for each treatment combination
-
-        budgets: array-like of shape (n_samples, ) or float
-            if budget_level="individual", budgets include budget for each subject,
-            if budget_level="population", budgets is total budget over population
-
-        lambda_1: float, default=0.1
-            penalty_coefficient for identity constraint
-
-        lambda_2: float, default=1000
-            peanlty_coefficient for unsatisification of budget constraint
-
-        budget_level: {"individual", "population"}, default="individual"
-            cost budget type
+        cost: array-like of shape (n_channels, )
+            cost for each treatment channel
+        
+        budgets: array-like of shape (n_channels,)
+            budget for each channels
 
         """
+        n_channels = A.shape[1]
+
+        D = self.predict(X, A)
+
+        limit = np.divide(budgets, cost)
+
+        for c in range(n_channels):
+
+            if np.sum(D[:, c]) < limit[c]:
+                
+                pass
+
+            else: 
+
+                col = D[:, c]
+                idx = np.squeeze(np.argwhere(col == 1))
+
+                idx_select = np.random.choice(idx, size=(int(limit[c]), ))
+
+                D[:, c] = 0
+                D[idx_select, c] = 1
+
+        return D
+
+    def realign_mckp(self, X, A, cost, budget):
 
         X_tsr = torch.from_numpy(X).float()
         if self.device == "gpu":
@@ -572,89 +589,17 @@ class MCITR():
             alphas = self.model.covariate_embed(X_tsr).detach().numpy() # covariate embedding
             betas = self.model.treatment_embed(A_tsr).detach().numpy() # treatment embedding
 
-        n_embedding = alphas.shape[1]
+        trt_panel = alphas.dot(betas.transpose())
 
-        if budget_level == "individual":
+        sol = _mckp(trt_panel, cost, budget)
 
-            treatment_realign = []
-            constraint_compliance = []
+        argm = np.argmax(sol, axis=1)
 
-            # iterater over all samples
-            for idx, alpha in tqdm(enumerate(alphas), ncols=100):
+        D = A_unique[argm]
 
-                budget = budgets[idx]
+        return D
 
-                I = anp.array([alpha.dot(beta.transpose()) for beta in betas])
-                I_binary = _binary_panel(I)
-                satisfy = (cost.dot(I_binary) - budget < 0)
 
-                # first check whether the constraint is satisfied under optimal treatment
-                if satisfy:
-                    argm = np.argmax(I)
-                    treatment_realign.append(A_unique[argm])
-                    constraint_compliance.append(satisfy)
 
-                # if not, find a rotation that maximize its value under the constraint
-                else:
-                    time = 0
-                    while not satisfy: 
-                        loss = _create_loss_individual(alpha, betas, cost, budget, lambda_1, lambda_2)
-                        manifold = Rotations(n_embedding)
-                        problem = Problem(manifold, loss, verbosity=0)
-                        solver = SteepestDescent(maxiter=50)
-                        sol = solver.solve(problem)
 
-                        I = anp.array([alpha.dot(sol.transpose()).dot(beta.transpose()) for beta in betas])
-                        I_binary = _binary_panel(I)
-                        satisfy = (cost.dot(I_binary) - budget < 0)
-                        
-                        time = time + 1
-                        if time > 5:
-                            break
 
-                    argm = np.argmax(alpha.dot(sol.transpose()).dot(betas.transpose()))
-                    treatment_realign.append(A_unique[argm])
-                    constraint_compliance.append(satisfy)
-
-                
-            return np.array(treatment_realign), np.array(constraint_compliance)
-
-        elif budget_level == "population":
-
-            n_samples = alphas.shape[0]
-
-            subject_rotations = [np.eye(n_embedding)] * n_samples
-
-            alphas_rotate = np.zeros((n_samples, n_embedding))
-
-            for i in range(n_samples):
-
-                alphas_rotate[i, :] = alphas[i, :].dot(subject_rotations[i])
-            
-            iterations = 20
-
-            for iter in range(iterations):
-
-                for i in range(n_samples):
-
-                    alpha = alphas[i]
-                    alphas_r = alphas_rotate[np.delete(np.arange(n_samples), i), :]
-
-                    loss = _create_loss_population(alpha, alphas_r, betas, cost, budgets, lambda_1, lambda_2)
-                    manifold = Rotations(n_embedding)
-                    problem = Problem(manifold, loss, verbosity=0)
-                    solver = SteepestDescent(maxiter=5)
-                    sol = solver.solve(problem)
-                    
-                    subject_rotations[i] = sol
-                    alphas_rotate[i, :] = alphas[i].dot(sol.transpose())
-
-            trt_panel = alphas_rotate.dot(betas.transpose())
-
-            argm = np.argmax(trt_panel, axis=1)
-
-            treatment_realign = A_unique[argm]
-
-            constraint_compliance = (np.sum(cost[argm]) < budgets)
-
-            return treatment_realign, constraint_compliance

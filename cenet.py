@@ -68,7 +68,51 @@ class ConstrEncoderNet(nn.Module):
 
         output = torch.tensordot(alpha, torch.transpose(betas, 0, 1), dims=1)
 
+        output = torch.softmax(output, dim=1)
+
         return output
+
+    def loss_fn(self, mask_panel, trt_panel, cost, budget, lambd):
+
+        loss1 = - torch.sum(mask_panel * trt_panel)
+        loss2 = lambd * torch.maximum(torch.sum(mask_panel * cost) - budget, torch.Tensor([0])) ** 2
+
+        return loss1 + loss2
+
+    def train(self, data, epochs=100, learning_rate=1e-3, lambd=100, verbose=0):
+
+        # define optimizer
+        optimizer = torch.optim.SGD(self.parameters(), lr = learning_rate)
+        optimizer.zero_grad()
+        scheduler = ExponentialLR(optimizer, gamma=0.999)
+
+        # load data
+        X, betas, trt_panel, cost, budget = data
+
+        for epoch in range(epochs):
+
+            # generate predict
+            output = self(X, betas)
+
+            # calculate loss
+            loss = self.loss_fn(output, trt_panel, cost, budget, lambd)
+
+            loss.backward()
+            optimizer.step()
+            optimizer.zero_grad()
+            scheduler.step()
+
+            if verbose == 1:
+                print("Epoch {0} - Training loss: {1} -".format(epoch, loss))
+
+    def getmask(self, X, betas):
+
+        output = self(X, betas)
+        mask = torch.zeros(output.size())
+        argm = torch.argmax(output, dim=1)
+        mask[torch.arange(output.size()[0]), argm] = 1
+
+        return mask.detach().numpy()
 
 
 if __name__ == "__main__":
@@ -79,6 +123,16 @@ if __name__ == "__main__":
 
     betas = torch.rand(4, 5)
 
-    output = cenet(X, betas)
+    trt_panel = torch.rand(100, 4)
 
-    print(output)
+    cost_panel = torch.Tensor([[0, 0, 1, 1]])
+
+    budget = torch.Tensor([20])
+
+    data = (X, betas, trt_panel, cost_panel, budget)
+
+    cenet.train(data, 100, 1e-2, verbose=1)
+    
+    mask = cenet.getmask(X, betas)
+
+    print(mask)

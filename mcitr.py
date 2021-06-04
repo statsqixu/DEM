@@ -4,14 +4,6 @@ Multi-channel Individualized Treatment Rule
 
 # Author: Qi Xu <qxu6@uci.edu>
 
-import autograd.numpy as anp
-import autograd.scipy as asp
-
-import pymanopt
-from pymanopt import Problem
-from pymanopt.manifolds import Rotations
-from pymanopt.solvers import SteepestDescent
-
 import torch
 from torch.utils.data import DataLoader
 
@@ -20,8 +12,6 @@ from torch.optim import Adam
 import numpy as np 
 from sklearn.neural_network import MLPClassifier
 from sklearn.linear_model import LinearRegression
-import matplotlib.pyplot as plt
-from tqdm import tqdm
 
 from util import plot_train_history
 from denet import DuoEncoderNet, Trainer
@@ -520,6 +510,31 @@ class MCITR():
         D = A_unique[argm]
 
         return D
+
+    def realign_mask(self, X, A, cost, budget):
+        
+        """
+        solve the budget constraint problem with masking
+
+        Parameters
+        -----------
+        X: array-like of shape (n_samples, n_features)
+            pre-treatment covariate
+
+        A: array-like of shape (n_samples, n_channels)
+            multi-channel treatment
+
+        cost: array-like of shape (n_combinations, )
+            cost for each treatment combination
+
+        budgets: float
+            total budget over population
+
+        """
+
+        
+
+
 
 
 

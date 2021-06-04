@@ -1,5 +1,5 @@
 """
-Embedding Inner-product Network
+Duo Encoder Network
 """
 
 # Author: Qi Xu <qxu6@uci.edu>
@@ -14,12 +14,12 @@ from torch.optim.lr_scheduler import ExponentialLR
 
 # Define the network structure
 
-class EINet(nn.Module):
+class DuoEncoderNet(nn.Module):
     
     def __init__(self, input_size, layer_trt=2, layer_cov=2, act_trt="linear", act_cov="linear", 
                                    width_trt=20, width_cov=20, width_embed=5):
 
-        super(EINet, self).__init__()
+        super().__init__()
 
         trt_dim, cov_dim = input_size
 

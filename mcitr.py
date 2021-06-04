@@ -24,7 +24,7 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 
 from util import plot_train_history
-from network import EINet, Trainer
+from denet import DuoEncoderNet, Trainer
 from container import ITRDataset
 from mckp import _mckp
 
@@ -127,105 +127,6 @@ def _return_device(device):
 
         else:
             return "cpu"
-
-
-def _create_loss_individual(alpha, betas, cost, budget, lambda_1, lambda_2):
-
-    """
-    create loss function for individual-level budget constrained problem
-
-    Parameters
-    ----------
-    alpha: array-like of shape (n_samples, n_embedding)
-        covariate embedding 
-
-    betas: array-like of shape (n_combinations, n_embedding)
-        unique treatment embedding
-
-    cost: array-like of shape (n_combinations, )
-        cost for each treatment combination
-
-    budget: array-like of shape (n_samples, )
-        cost budget for each subject
-
-    lambda_1: float, default=0.1
-        penalty_coefficient for identity constraint
-
-    lambda_2: float, default=1000
-        peanlty_coefficient for unsatisification of budget constraint
-    """
-    
-    def loss(X):
-
-        I = anp.array([alpha.dot(X.transpose()).dot(beta.transpose()) for beta in betas])
-        
-        loss1 = - asp.special.logsumexp(I)
-        penalty1 =  - lambda_1 * alpha.dot(X.transpose()).dot(alpha.transpose()) / alpha.dot(alpha)
-        penalty2 = lambda_2 * anp.maximum(cost.dot(anp.exp(I) / anp.sum(anp.exp(I))) - budget, 0)
-
-        return loss1 + penalty1 + penalty2
-
-    return loss
-
-
-def _binary_panel(I):
-
-    I = np.exp(I) / np.sum(np.exp(I))
-    I_binary = I
-    I_binary[np.argmax(I)] = 1
-    I_binary[I_binary < 1] = 0
-
-    return I_binary
-
-
-def _create_loss_population(alpha, alphas_r, betas, cost, budget, lambda_1, lambda_2):
-
-    """
-    create loss function for population-level budget constrained problem
-
-    Parameters
-    ----------
-    alpha: array-like of shape (1, n_embedding)
-        covariate embedding 
-
-    alphas_r: array-like of shape (n_samples, n_embedding)
-        remaining rotated covaraite embedding in the population
-
-    betas: array-like of shape (n_combinations, n_embedding)
-        unique treatment embedding
-
-    cost: array-like of shape (n_combinations, )
-        cost for each treatment combination
-
-    budget: array-like of shape (n_samples, )
-        total cost budget within population
-
-    lambda_1: float, default=0.1
-        penalty_coefficient for identity constraint
-
-    lambda_2: float, default=1000
-        peanlty_coefficient for unsatisification of budget constraint
-    """
-
-    def loss(X):
-    
-        I = anp.array([alpha.dot(X.transpose()).dot(beta.transpose()) for beta in betas])
-
-        Is = anp.array(alphas_r.dot(betas.transpose()))
-
-        loss1 = - asp.special.logsumexp(I)
-        loss2 = - anp.sum(asp.special.logsumexp(Is, axis=1))
-        
-        penalty1 = -lambda_1 * alpha.dot(X.transpose()).dot(alpha.transpose()) / alpha.dot(alpha)
-        
-        cost1 = cost.dot(anp.exp(I) / anp.sum(anp.exp(I)))
-        cost2 = anp.sum((anp.exp(Is) / anp.sum(anp.exp(Is), axis=1)[:, anp.newaxis]).dot(cost))
-
-        penalty2 = lambda_2 * anp.maximum((cost1 + cost2 - budget), 0)
-
-        return loss1 + loss2 + penalty1 + penalty2
-
-    return loss
 
 
 
@@ -349,7 +250,7 @@ class MCITR():
         input_dim = (A.shape[1], X.shape[1])
         n_samples = X.shape[0]
 
-        self.model = EINet(input_dim, self.depth_trt, 
+        self.model = DuoEncoderNet(input_dim, self.depth_trt, 
                             self.depth_cov, self.act_trt,
                             self.act_cov, self.width_trt, 
                             self.width_cov, self.width_embed)

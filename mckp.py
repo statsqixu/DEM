@@ -30,7 +30,7 @@ def _mckp(trt_panel, cost, budget):
     m.verbose = 0
     status = m.optimize(max_seconds=500)
 
-    print(status)
+    #print(status)
 
     sol = np.array([v.x for v in m.vars])
     sol = np.reshape(sol, (n_samples, n_combinations))

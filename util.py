@@ -93,7 +93,7 @@ def getdata(sample_size, case=1, seed=None):
     sample_size: int
         number of subjects to be generated
     
-    case: {1, 2, ..., 16}
+    case: {1, 2, ..., 8}
         simulation case number
         case 1: low-dim covariates, linear, 2-channels
         case 2: low-dim covariates, linear, 3-channels

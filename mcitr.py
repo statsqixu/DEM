@@ -337,7 +337,8 @@ class MCITR():
 
         _device = _return_device(device)
 
-        print("--------- The program is running on {0}----------".format(_device))
+        if verbose > 0:
+            print("--------- The program is running on {0}----------".format(_device))
 
         self.device = _device
 
@@ -569,6 +570,26 @@ class MCITR():
         return D
 
     def realign_mckp(self, X, A, cost, budget):
+
+        """
+        solve the budget constraint problem with MCKP
+
+        Parameters
+        -----------
+        X: array-like of shape (n_samples, n_features)
+            pre-treatment covariate
+
+        A: array-like of shape (n_samples, n_channels)
+            multi-channel treatment
+
+        cost: array-like of shape (n_combinations, )
+            cost for each treatment combination
+
+        budgets: float
+            total budget over population
+
+        """
+
 
         X_tsr = torch.from_numpy(X).float()
         if self.device == "gpu":

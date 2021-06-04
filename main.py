@@ -20,8 +20,8 @@ def demo():
     print("----accuracy: {0}----".format(accuracy))
     print("----value: {0}----".format(value))
 
-    cost = np.array([0, 0, 0, 0])
-    budgets = 400
+    cost = np.array([0, 1, 1, 2])
+    budgets = 0
 
     D = mcitr.realign_mckp(X, A, cost = cost, budget=budgets)
 
@@ -39,7 +39,7 @@ def demo():
     print("----value: {0}----".format(value))
 
     cost_channels = [1, 1]
-    budget_channels = [200, 200]
+    budget_channels = [0, 0]
 
     D = mcitr.realign_random(X, A, cost_channels, budget_channels)
 

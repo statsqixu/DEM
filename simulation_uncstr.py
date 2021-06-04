@@ -2,12 +2,11 @@
 from util import getdata
 from mcitr import MCITR
 import numpy as np
-from tqdm import tqdm
-from multiprocessing import Pool, Process
+from multiprocessing import Pool
 from functools import partial
 
 
-def run(seed, iss, sample_size, ic, case):
+def run(seed, sample_size, case):
 
     Y_train, X_train, A_train, optA_train = getdata(sample_size, case=case, seed=seed)
     Y_test, X_test, A_test, optA_test = getdata(2000, case=case, seed=seed + 200)
@@ -42,7 +41,7 @@ def main():
             print("---- case number: {0} ----".format(case))
 
             with Pool(8) as p:
-                run_part = partial(run, iss=iss, sample_size=sample_size, ic=ic, case=case)
+                run_part = partial(run, sample_size=sample_size, case=case)
                 accuracy_ls, value_ls = zip(*p.map(run_part, seed_list))
 
             accuracy_list[iss, ic, :] = accuracy_ls
@@ -50,8 +49,6 @@ def main():
 
             np.save("accuracy_uncstr_parallel", accuracy_list)
             np.save("value_uncstr_parallel", value_list)
-
-    print()
 
 
 if __name__ == "__main__":

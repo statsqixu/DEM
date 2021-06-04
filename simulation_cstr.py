@@ -2,13 +2,11 @@
 from util import getdata
 from mcitr import MCITR
 import numpy as np
-from tqdm import tqdm
 from multiprocessing import Pool
+from functools import partial
 
 
-def run(seed):
-
-    global accuracy_list, value_list
+def run(seed, sample_size, case, cost_combinations, budget_combinations, cost_channels, budget_channels):
 
     Y_train, X_train, A_train, optA_train = getdata(sample_size, case=case, seed=seed)
     Y_test, X_test, A_test, optA_test = getdata(2000, case=case, seed=seed + 200)
@@ -18,24 +16,17 @@ def run(seed):
 
     D_test = mcitr.predict(X_test, A_test)
 
-    accuracy, value = mcitr.evaluate(Y_test, A_test, D_test, X_test, optA_test)
-
-    accuracy_list[iss, ic, seed, iq, 0] = accuracy
-    value_list[iss, ic, seed, iq, 0] = value
+    accuracy1, value1 = mcitr.evaluate(Y_test, A_test, D_test, X_test, optA_test)
 
     D_test_mckp = mcitr.realign_mckp(X_test, A_test, cost_combinations, budget_combinations)
 
-    accuracy, value = mcitr.evaluate(Y_test, A_test, D_test_mckp, X_test, optA_test)
-
-    accuracy_list[iss, ic, seed, iq, 1] = accuracy
-    value_list[iss, ic, seed, iq, 1] = value
+    accuracy2, value2 = mcitr.evaluate(Y_test, A_test, D_test_mckp, X_test, optA_test)
 
     D_test_rdm = mcitr.realign_random(X_test, A_test, cost_channels, budget_channels)
 
-    accuracy, value = mcitr.evaluate(Y_test, A_test, D_test_rdm, X_test, optA_test)
+    accuracy3, value3 = mcitr.evaluate(Y_test, A_test, D_test_rdm, X_test, optA_test)
 
-    accuracy_list[iss, ic, seed, iq, 2] = accuracy
-    value_list[iss, ic, seed, iq, 2] = value
+    return accuracy1, value1, accuracy2, value2, accuracy3, value3
 
 
 def main():
@@ -80,8 +71,20 @@ def main():
                     budget_combinations = 2000 * quantile
 
                 with Pool(8) as p:
+                    run_part = partial(run, sample_size=sample_size, case=case, 
+                                        cost_combinations=cost_combinations,
+                                        budget_combinations=budget_combinations,
+                                        cost_channels=cost_channels,
+                                        budget_channels=budget_channels)
+                    accuracy1_list, value1_list, accuracy2_list, value2_list, accuracy3_list, value3_list = zip(*p.map(run_part, seed_list))
 
-                    p.map(run, seed_list)
+                    accuracy_list[iss, ic, :, iq, 0] = accuracy1_list
+                    accuracy_list[iss, ic, :, iq, 1] = accuracy2_list
+                    accuracy_list[iss, ic, :, iq, 2] = accuracy3_list
+
+                    value_list[iss, ic, :, iq, 0] = value1_list
+                    value_list[iss, ic, :, iq, 1] = value2_list
+                    value_list[iss, ic, :, iq, 2] = value3_list
 
                 np.save("accuracy_cstr", accuracy_list)
                 np.save("value_cstr", value_list)

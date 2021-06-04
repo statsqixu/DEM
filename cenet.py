@@ -118,26 +118,3 @@ class ConstrEncoderNet(nn.Module):
         mask[torch.arange(output.size()[0]), argm] = 1
 
         return mask.detach().numpy()
-
-
-if __name__ == "__main__":
-
-    cenet = ConstrEncoderNet(5, width_embed=5)
-
-    X = torch.rand(100, 5)
-
-    betas = torch.rand(4, 5)
-
-    trt_panel = torch.rand(100, 4)
-
-    cost_panel = torch.Tensor([[0, 0, 1, 1]])
-
-    budget = torch.Tensor([20])
-
-    data = (X, betas, trt_panel, cost_panel, budget)
-
-    cenet.train(data, 100, 1e-2, verbose=1)
-    
-    mask = cenet.getmask(X, betas)
-
-    print(mask)

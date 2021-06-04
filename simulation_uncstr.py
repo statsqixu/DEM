@@ -3,11 +3,11 @@ from util import getdata
 from mcitr import MCITR
 import numpy as np
 from tqdm import tqdm
+from multiprocessing import Pool, Process
+from functools import partial
 
 
-def run(seed):
-
-    global accuarcy_list, value_list
+def run(seed, iss, sample_size, ic, case):
 
     Y_train, X_train, A_train, optA_train = getdata(sample_size, case=case, seed=seed)
     Y_test, X_test, A_test, optA_test = getdata(2000, case=case, seed=seed + 200)
@@ -19,9 +19,8 @@ def run(seed):
 
     accuracy, value = mcitr.evaluate(Y_test, A_test, D_test, X_test, optA_test)
 
-    accuracy_list[iss, ic, seed] = accuracy
-    value_list[iss, ic, seed] = value
-
+    return accuracy, value
+    
 
 def main():
 
@@ -43,12 +42,16 @@ def main():
             print("---- case number: {0} ----".format(case))
 
             with Pool(8) as p:
+                run_part = partial(run, iss=iss, sample_size=sample_size, ic=ic, case=case)
+                accuracy_ls, value_ls = zip(*p.map(run_part, seed_list))
 
-                p.map(run, seed_list)
+            accuracy_list[iss, ic, :] = accuracy_ls
+            value_list[iss, ic, :] = value_ls
 
+            np.save("accuracy_uncstr_parallel", accuracy_list)
+            np.save("value_uncstr_parallel", value_list)
 
-            np.save("accuracy_uncstr", accuracy_list)
-            np.save("value_uncstr", value_list)
+    print()
 
 
 if __name__ == "__main__":

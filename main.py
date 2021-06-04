@@ -2,7 +2,6 @@
 
 from util import getdata
 from mcitr import MCITR
-import matplotlib.pyplot as plt
 import numpy as np
 
 
@@ -21,8 +20,8 @@ def demo():
     print("----accuracy: {0}----".format(accuracy))
     print("----value: {0}----".format(value))
 
-    cost = np.array([0, 0, 1, 1])
-    budgets = 50
+    cost = np.array([0, 0, 0, 0])
+    budgets = 400
 
     D = mcitr.realign_mckp(X, A, cost = cost, budget=budgets)
 
@@ -32,7 +31,7 @@ def demo():
     print("----value: {0}----".format(value))
 
     # poor performance
-    D = mcitr.realign_mask(X, A, cost = cost, budget=budgets, layer=2, width=100, epochs=1000, lambd=100, learning_rate=1e-1, verbose=0)
+    D = mcitr.realign_mask(X, A, cost = cost, budget=budgets, layer=3, width=20, epochs=100, lambd=100, learning_rate=1e-2, verbose=0)
 
     accuracy, value = mcitr.evaluate(Y, A, D, X, optA)
 
@@ -40,7 +39,7 @@ def demo():
     print("----value: {0}----".format(value))
 
     cost_channels = [1, 1]
-    budget_channels = [50, 200]
+    budget_channels = [200, 200]
 
     D = mcitr.realign_random(X, A, cost_channels, budget_channels)
 

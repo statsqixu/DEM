@@ -75,27 +75,31 @@ class ConstrEncoderNet(nn.Module):
     def loss_fn(self, mask_panel, trt_panel, cost, budget, lambd):
 
         loss1 = - torch.sum(mask_panel * trt_panel)
-        loss2 = lambd * torch.maximum(torch.sum(mask_panel * cost) - budget, torch.Tensor([0])) ** 2
+        loss2 = lambd * torch.maximum((torch.sum(mask_panel * cost) - budget), torch.Tensor([0])) ** 2
 
         return loss1 + loss2
 
-    def train(self, data, epochs=100, learning_rate=1e-3, lambd=100, verbose=0):
+    def train(self, data, epochs=100, learning_rate=1e-3, lambd=1e3, verbose=0):
 
         # define optimizer
-        optimizer = torch.optim.SGD(self.parameters(), lr = learning_rate)
+        optimizer = torch.optim.Adam(self.parameters(), lr = learning_rate)
         optimizer.zero_grad()
         scheduler = ExponentialLR(optimizer, gamma=0.999)
-
+        lambda_list = torch.linspace(0, lambd, steps=epochs//5)
         # load data
         X, betas, trt_panel, cost, budget = data
+
+        e_idx = -1
 
         for epoch in range(epochs):
 
             # generate predict
             output = self(X, betas)
 
+            if epoch % 5 == 0:
+                e_idx = e_idx + 1
             # calculate loss
-            loss = self.loss_fn(output, trt_panel, cost, budget, lambd)
+            loss = self.loss_fn(output, trt_panel, cost, budget, lambda_list[e_idx])
 
             loss.backward()
             optimizer.step()
@@ -104,6 +108,7 @@ class ConstrEncoderNet(nn.Module):
 
             if verbose == 1:
                 print("Epoch {0} - Training loss: {1} -".format(epoch, loss))
+                
 
     def getmask(self, X, betas):
 

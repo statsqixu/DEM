@@ -19,26 +19,35 @@ import numpy as np
 import matplotlib.pyplot as plt
 import torch
 
-Y, X, A, optA = getdata(sample_size)
+Y, X, A, optA = getdata(200, case=2, seed=1)
 
-mcitr = MCITR()
-history = mcitr.fit(Y, X, A, scenario="ct", verbose=1, device="cpu", epochs=100)
+mcitr = MCITR(depth_trt=3, depth_cov=3, width_trt=50, width_cov=50, width_embed=3)
+history = mcitr.fit(Y, X, A, device="cpu", verbose=1, epochs=50, learning_rate=5e-2)
 
-D = mcitr.predict(X, A) # estimated MCITR
+D = mcitr.predict(X, A) # unconstrained
+accuracy, value = mcitr.evaluate(Y, A, D, X, optA)
 
-value, accuracy = mcitr.evaluate(Y, A, D, optA=optA) # value function and accuracy of estimated MCITR
+print("----accuracy: {0}----".format(accuracy))
+print("----value: {0}----".format(value))
 
-D_bc = mcitr.realign(X, A, cost, budget, budget_level="population") # estimated MCITR after rotation to satisfy budget constraint
+cost = np.array([0, 0, 0, 0, 1, 1, 1, 1])
+budgets = 20
+
+D = mcitr.realign_mckp(X, A, cost = cost, budget=budgets) # constrained
+
+accuracy, value = mcitr.evaluate(Y, A, D, X, optA)
+
+print("----accuracy: {0}----".format(accuracy))
+print("----value: {0}----".format(value))
 ```
 
 - Done
 - [X] Estimate optimal MCITR using embedding inner-product networks
-- [X] Estimate constrained MCITR with rotational framework
+- [X] Estimate constrained MCITR with multi-choice knapsack (MCKP)
 
 - To Do List
 - [ ] Stabilize small weights for propensity scores
 - [ ] Doubly robust estimator
-- [ ] Speed up population-level budget constraint
 - [ ] Theory:
 	- [ ] Statistical Optimality
 	- [ ] Equivalence between proposed rotational framework and discrete problem

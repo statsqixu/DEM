@@ -10,14 +10,25 @@ import torch.nn as nn
 import torch.nn.functional as F 
 from torch.optim.lr_scheduler import ExponentialLR
 
-
+# cancel out layer
+class CancelOut(nn.Module):
+    '''
+    CancelOut Layer
+    
+    x - an input data (vector, matrix, tensor)
+    '''
+    def __init__(self,inp, *kargs, **kwargs):
+        super(CancelOut, self).__init__()
+        self.weights = nn.Parameter(torch.zeros(inp,requires_grad = True)+4)
+    def forward(self, x):
+        return (x * torch.sigmoid(self.weights.float()))
 
 # Define the network structure
 
 class EINet(nn.Module):
     
     def __init__(self, input_size, layer_trt=2, layer_cov=2, act_trt="linear", act_cov="linear", 
-                                   width_trt=20, width_cov=20, width_embed=5):
+                                   width_trt=20, width_cov=20, width_embed=5, cov_cancel=True):
 
         super(EINet, self).__init__()
 
@@ -40,7 +51,11 @@ class EINet(nn.Module):
 
         # define covariate encoder
 
-        self.cov_input = nn.Linear(cov_dim, width_cov)
+        if cov_cancel:
+            self.cov_input = CancelOut(cov_dim)
+        else:
+            self.cov_input = nn.Linear(cov_dim, width_cov)
+        
 
         self.cov_hidden = nn.ModuleList()
         for i in range(layer_cov):
@@ -48,6 +63,7 @@ class EINet(nn.Module):
             self.cov_hidden.append(nn.BatchNorm1d(num_features=width_cov))
 
         self.cov_embed = nn.Linear(width_cov, width_embed)
+
         
     def weighted_mse_loss(self, input, target, weight):
         

@@ -10,10 +10,10 @@ import numpy as np
 
 def demo():
 
-    Y, X, A, optA = getdata(200, case=2, seed=1)
+    Y, X, A, optA = getdata(200, case=6, seed=1)
 
     mcitr = MCITR(depth_trt=3, depth_cov=3, width_trt=50, width_cov=50, width_embed=3)
-    history = mcitr.fit(Y, X, A, device="cpu", verbose=1, epochs=50, learning_rate=5e-2)
+    history = mcitr.fit(Y, X, A, device="cpu", verbose=1, epochs=100, learning_rate=5e-2)
 
     D = mcitr.predict(X, A)
     accuracy, value = mcitr.evaluate(Y, A, D, X, optA)

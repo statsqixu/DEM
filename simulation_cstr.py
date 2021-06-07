@@ -37,13 +37,13 @@ def main():
 
     # 2-channel simulation 
 
-    sample_size_list = [200, 400] # training sample size
+    sample_size_list = [200, 400, 800, 2000] # training sample size
     case_list = [1, 2, 3, 4] # data generation cases
     seed_list = np.arange(200) # 200 replicate for each simulation setting
     quantile_list = [0.1, 0.2, 0.3, 0.4, 0.5]
 
-    accuracy_list = np.zeros((2, 4, 200, 5, 4))
-    value_list = np.zeros((2, 4, 200, 5, 4))
+    accuracy_list = np.zeros((4, 4, 200, 5, 4))
+    value_list = np.zeros((4, 4, 200, 5, 4))
 
     
     for iss, sample_size in enumerate(sample_size_list):

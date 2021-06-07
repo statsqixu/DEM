@@ -79,16 +79,16 @@ class ConstrEncoderNet(nn.Module):
 
         return loss1 + loss2
 
-    def train(self, data, epochs=100, learning_rate=1e-3, lambd=1e3, verbose=0):
+    def train(self, data, epochs=10000, learning_rate=1e-3, lambd=1e3, verbose=0):
 
         # define optimizer
         optimizer = torch.optim.Adam(self.parameters(), lr = learning_rate)
         optimizer.zero_grad()
         scheduler = ExponentialLR(optimizer, gamma=0.999)
-        lambda_list = torch.linspace(0, lambd, steps=epochs//5)
         # load data
         X, betas, trt_panel, cost, budget = data
 
+        lambd_list = torch.linspace(start=1, end=lambd, steps=epochs // 10)
         e_idx = -1
 
         for epoch in range(epochs):
@@ -96,10 +96,11 @@ class ConstrEncoderNet(nn.Module):
             # generate predict
             output = self(X, betas)
 
-            if epoch % 5 == 0:
+            if epoch % 10 == 0:
                 e_idx = e_idx + 1
+
             # calculate loss
-            loss = self.loss_fn(output, trt_panel, cost, budget, lambda_list[e_idx])
+            loss = self.loss_fn(output, trt_panel, cost, budget, lambd_list[e_idx])
 
             loss.backward()
             optimizer.step()

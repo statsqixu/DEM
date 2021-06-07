@@ -512,7 +512,7 @@ class MCITR():
 
         return D
 
-    def realign_mask(self, X, A, cost, budget, layer=2, width=10, epochs=100, learning_rate=1e-3, lambd=100, verbose=0):
+    def realign_mask(self, X, A, cost, budget, layer=2, width=10, epochs=5000, learning_rate=1e-2, lambd=10, verbose=0):
         
         """
         solve the budget constraint problem with masking

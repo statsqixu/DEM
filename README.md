@@ -39,6 +39,13 @@ accuracy, value = mcitr.evaluate(Y, A, D, X, optA)
 
 print("----accuracy: {0}----".format(accuracy))
 print("----value: {0}----".format(value))
+
+D = mcitr.realign_mask(X, A, cost = cost, budget=budgets, layer=2, width=10, epochs=5000, lambd=10, learning_rate=1e-2, verbose=0)
+
+accuracy, value = mcitr.evaluate(Y, A, D, X, optA)
+
+print("----accuracy: {0}----".format(accuracy))
+print("----value: {0}----".format(value))
 ```
 
 - Done

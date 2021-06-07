@@ -46,8 +46,8 @@ print("----value: {0}----".format(value))
 - [X] Estimate constrained MCITR with multi-choice knapsack (MCKP)
 
 - To Do List
+- [ ] Feature selection for high-dimensional covariate
 - [ ] Stabilize small weights for propensity scores
 - [ ] Doubly robust estimator
 - [ ] Theory:
 	- [ ] Statistical Optimality
-	- [ ] Equivalence between proposed rotational framework and discrete problem

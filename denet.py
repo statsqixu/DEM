@@ -37,6 +37,7 @@ class DuoEncoderNet(nn.Module):
         self.layer_trt, self.layer_cov = layer_trt, layer_cov
         self.act_trt, self.act_cov = act_trt, act_cov
         self.width_trt, self.width_cov, self.width_embed = width_trt, width_cov, width_embed
+        self.cov_cancel = cov_cancel
 
         # define treatment encoder
 
@@ -52,13 +53,13 @@ class DuoEncoderNet(nn.Module):
         # define covariate encoder
 
         if cov_cancel:
-            self.cov_input = CancelOut(cov_dim)
-        else:
-            self.cov_input = nn.Linear(cov_dim, width_cov)
-        
+            self.cov_co = CancelOut(cov_dim)
+    
+        self.cov_input = nn.Linear(cov_dim, width_cov)
 
         self.cov_hidden = nn.ModuleList()
-        for i in range(layer_cov):
+        
+        for _ in range(layer_cov):
             self.cov_hidden.append(nn.Linear(width_cov, width_cov))
             self.cov_hidden.append(nn.BatchNorm1d(num_features=width_cov))
 
@@ -127,7 +128,12 @@ class DuoEncoderNet(nn.Module):
         
         # covaraite encoding
 
-        cov = self.cov_input(X)
+        if self.cov_cancel:
+            cov = self.cov_co(X)
+            cov = self.cov_input(cov)
+        else:
+            cov = self.cov_input(X)
+
         if self.act_cov == "relu":
             cov = F.relu(cov)
         elif self.act_cov == "linear":

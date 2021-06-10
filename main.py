@@ -11,7 +11,7 @@ def demo():
 
     Y, X, A, optA = getdata(500, case=1, seed=1)
 
-    mcitr = MCITR(depth_trt=3, depth_cov=3, width_trt=50, width_cov=50, width_embed=3, cov_cancel=False)
+    mcitr = MCITR(depth_trt=3, depth_cov=3, width_trt=50, width_cov=50, width_embed=3, cov_cancel=True)
     history = mcitr.fit(Y, X, A, device="cpu", verbose=0, epochs=50, learning_rate=5e-2)
 
     D = mcitr.predict(X, A)

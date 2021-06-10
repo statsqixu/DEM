@@ -9,7 +9,9 @@ import numpy as np
 
 def demo():
 
-    Y, X, A, optA = getdata(200, case=1, seed=1)
+    Y, X, A, optA = getdata(500, case=1, seed=1)
+
+    print(np.sum(optA, axis=0))
 
     mcitr = MCITR(depth_trt=3, depth_cov=3, width_trt=50, width_cov=50, width_embed=3)
     history = mcitr.fit(Y, X, A, device="cpu", verbose=0, epochs=50, learning_rate=5e-2)
@@ -17,8 +19,10 @@ def demo():
     D = mcitr.predict(X, A)
     accuracy, value = mcitr.evaluate(Y, A, D, X, optA)
     
+    print("---- Unconstrained ----")
     print("----accuracy: {0}----".format(accuracy))
     print("----value: {0}----".format(value))
+    print(np.sum(D, axis=0))
 
     cost = np.array([0, 0, 1, 1])
     budgets = 20
@@ -27,26 +31,22 @@ def demo():
 
     accuracy, value = mcitr.evaluate(Y, A, D, X, optA)
 
+    print("---- MCKP ----")
     print("----accuracy: {0}----".format(accuracy))
     print("----value: {0}----".format(value))
-
-    # poor performance
-    D = mcitr.realign_mask(X, A, cost = cost, budget=budgets, layer=2, width=10, epochs=5000, lambd=10, learning_rate=1e-2, verbose=0)
-
-    accuracy, value = mcitr.evaluate(Y, A, D, X, optA)
-
-    print("----accuracy: {0}----".format(accuracy))
-    print("----value: {0}----".format(value))
+    
 
     cost_channels = [1, 1]
-    budget_channels = [20, 200]
+    budget_channels = [20, 500]
 
     D = mcitr.realign_random(X, A, cost_channels, budget_channels)
 
     accuracy, value = mcitr.evaluate(Y, A, D, X, optA)
 
+    print("---- Random ----")
     print("----accuracy: {0}----".format(accuracy))
     print("----value: {0}----".format(value))
+    
 
 
 if __name__ == "__main__":

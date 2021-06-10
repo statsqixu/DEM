@@ -21,3 +21,5 @@ class ITRDataset(Dataset):
     
     def __getitem__(self, idx):
         return self.output[idx], self.covariate[idx], self.treatment[idx], self.weight[idx]
+
+

@@ -16,7 +16,7 @@ from sklearn.linear_model import LinearRegression
 from util import plot_train_history
 from denet import DuoEncoderNet, Trainer
 from cenet import ConstrEncoderNet
-from container import ITRDataset
+from container import ITRDataset, ITRDataset2
 from mckp import _mckp
 
 
@@ -512,71 +512,7 @@ class MCITR():
 
         return D
 
-    def realign_mask(self, X, A, cost, budget, layer=2, width=10, epochs=5000, learning_rate=1e-2, lambd=10, verbose=0):
-        
-        """
-        solve the budget constraint problem with masking
-
-        Parameters
-        -----------
-        X: array-like of shape (n_samples, n_features)
-            pre-treatment covariate
-
-        A: array-like of shape (n_samples, n_channels)
-            multi-channel treatment
-
-        cost: array-like of shape (n_combinations, )
-            cost for each treatment combination
-
-        budgets: float
-            total budget over population
-
-        """
-
-        X_tsr = torch.from_numpy(X).float()
-        if self.device == "gpu":
-            X_tsr = X_tsr.to(self.device)
-
-        n_samples, n_features = X_tsr.size()
-
-        A_unique = np.unique(A, axis=0)
-        A_tsr = torch.from_numpy(A_unique).float()
-        if self.device == "gpu":
-            A_tsr = A_tsr.to(self.device)
-
-        if self.device == "gpu":
-
-            alphas = self.model.covariate_embed(X_tsr).detach() # covariate embedding
-            betas = self.model.treatment_embed(A_tsr).detach() # treatment embedding
-
-        else:
-
-            alphas = self.model.covariate_embed(X_tsr).detach() # covariate embedding
-            betas = self.model.treatment_embed(A_tsr).detach() # treatment embedding
-
-        trt_panel = torch.tensordot(alphas, torch.transpose(betas, 0, 1), dims=1)
-
-        cost_tsr = torch.from_numpy(cost)
-        budget_tsr = torch.Tensor([budget])
-
-        model = ConstrEncoderNet(input_size=n_features, layer=layer, width=width, width_embed=self.width_embed)
-
-        data = (X_tsr, betas, trt_panel, cost_tsr, budget_tsr)
-
-        model.train(data, epochs=epochs, learning_rate=learning_rate, lambd=lambd, verbose=verbose)
-
-        mask = model.getmask(X_tsr, betas)
-
-        argm = np.argmax(mask, axis=1)
-
-        D = A_unique[argm]
-
-        return D
-
-
-
-
-
+    
 
 
 

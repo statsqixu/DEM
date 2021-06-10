@@ -11,9 +11,7 @@ def demo():
 
     Y, X, A, optA = getdata(500, case=1, seed=1)
 
-    print(np.sum(optA, axis=0))
-
-    mcitr = MCITR(depth_trt=3, depth_cov=3, width_trt=50, width_cov=50, width_embed=3)
+    mcitr = MCITR(depth_trt=3, depth_cov=3, width_trt=50, width_cov=50, width_embed=3, cov_cancel=False)
     history = mcitr.fit(Y, X, A, device="cpu", verbose=0, epochs=50, learning_rate=5e-2)
 
     D = mcitr.predict(X, A)
@@ -22,8 +20,7 @@ def demo():
     print("---- Unconstrained ----")
     print("----accuracy: {0}----".format(accuracy))
     print("----value: {0}----".format(value))
-    print(np.sum(D, axis=0))
-
+    
     cost = np.array([0, 0, 1, 1])
     budgets = 20
 

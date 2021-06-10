@@ -15,8 +15,7 @@ from sklearn.linear_model import LinearRegression
 
 from util import plot_train_history
 from denet import DuoEncoderNet, Trainer
-from cenet import ConstrEncoderNet
-from container import ITRDataset, ITRDataset2
+from container import ITRDataset
 from mckp import _mckp
 
 

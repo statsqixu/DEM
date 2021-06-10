@@ -5,8 +5,6 @@
 - Package Requirement
 ```
 numpy		version 1.19.2
-autograd	version 1.3
-pymanopt	version 0.2.5
 torch		version 1.7.1+cu101
 sklearn		version 0.0
 matplotlib	version 3.4.1

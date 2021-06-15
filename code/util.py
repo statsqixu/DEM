@@ -83,7 +83,7 @@ def _3_channel_cov_embed(X):
 
 
 
-def getdata(sample_size, case=1, seed=None):
+def getdata(sample_size, case=1, family="gaussian", seed=None):
 
     """
     Simulation data generation
@@ -150,7 +150,15 @@ def getdata(sample_size, case=1, seed=None):
 
     Y = 1 + X[:, 0] + X[:, 1] + np.sum(np.multiply(alpha, beta), axis=1)
 
-    Y = Y + np.random.normal(size=(sample_size, ))
+    if family == "gaussian":
+
+        Y = Y + np.random.normal(size=(sample_size, ))
+
+    elif family == "bernoulli":
+
+        Y = 1 / (1 + np.exp(- Y))
+
+        Y = np.random.binomial(1, Y, size=(sample_size, ))
 
     A_unique, A_idx = np.unique(A, return_index=True, axis=0)
     beta_unique = beta[A_idx, :]

@@ -9,49 +9,43 @@ import numpy as np
 
 def demo():
 
-    Y, X, A, optA = getdata(500, case=1, seed=1)
+    Y, X, A, optA = getdata(500, case=1, seed=1, family="bernoulli")
 
-    Y_ = 1 / (1 + np.exp(-Y))
-
-    Y[Y_ < 1/2] == 0
-    Y[Y_ >= 1/2] == 1
-
-    mcitr = MCITR(depth_trt=3, depth_cov=3, width_trt=10, width_cov=10, width_embed=3, family="bernoulli")
-    history = mcitr.fit(Y, X, A, device="cpu", verbose=0, epochs=50, learning_rate=5e-2)
+    mcitr = MCITR(depth_trt=3, depth_cov=3, depth_men=3, width_trt=100, width_cov=100, width_men=100, width_embed=5, family="bernoulli", cov_cancel=False, men_cancel=False)
+    history = mcitr.fit(Y, X, A, device="cpu", verbose=1, epochs=50, learning_rate=1e-3)
 
     D = mcitr.predict(X, A)
     accuracy, value = mcitr.evaluate(Y, A, D, X, optA)
     
     print("---- Unconstrained ----")
-    print("----accuracy: {0}----".format(accuracy))
-    print("----value: {0}----".format(value))
+    print("---- accuracy: {0} ----".format(accuracy))
+    print("---- value: {0} ----".format(value))
     
     cost = np.array([0, 0, 1, 1])
-    budgets = 20
+    budgets = 10
 
     D = mcitr.realign_mckp(X, A, cost = cost, budget=budgets)
 
     accuracy, value = mcitr.evaluate(Y, A, D, X, optA)
 
     print("---- MCKP ----")
-    print("----accuracy: {0}----".format(accuracy))
-    print("----value: {0}----".format(value))
+    print("---- accuracy: {0} ----".format(accuracy))
+    print("---- value: {0} ----".format(value))
     
 
     cost_channels = [1, 1]
-    budget_channels = [20, 500]
+    budget_channels = [10, 500]
 
     D = mcitr.realign_random(X, A, cost_channels, budget_channels)
 
     accuracy, value = mcitr.evaluate(Y, A, D, X, optA)
 
     print("---- Random ----")
-    print("----accuracy: {0}----".format(accuracy))
-    print("----value: {0}----".format(value))
+    print("---- accuracy: {0} ----".format(accuracy))
+    print("---- value: {0} ----".format(value))
     
 
 
 if __name__ == "__main__":
 
     demo()
-

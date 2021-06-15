@@ -263,15 +263,13 @@ class MCITR():
 
             self.prop_model = prop_model # used to predict propensity score for new data
 
-        R = _residual(Y, X, weight=W)
-
         # create dataset to fit torch model
-        R_tsr = torch.from_numpy(R).float()
+        Y_tsr = torch.from_numpy(Y).float()
         X_tsr = torch.from_numpy(X).float()
         A_tsr = torch.from_numpy(A).float()
         W_tsr = torch.from_numpy(W).float()
 
-        dataset = ITRDataset(R_tsr, X_tsr, A_tsr, W_tsr)
+        dataset = ITRDataset(Y_tsr, X_tsr, A_tsr, W_tsr)
 
         loader = DataLoader(dataset, batch_size=batch_size)
 

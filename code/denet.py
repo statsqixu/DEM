@@ -27,17 +27,17 @@ class CancelOut(nn.Module):
 
 class DuoEncoderNet(nn.Module):
     
-    def __init__(self, input_size, layer_trt=2, layer_cov=2, act_trt="linear", act_cov="linear", 
-                                   width_trt=20, width_cov=20, width_embed=5, cov_cancel=True):
+    def __init__(self, input_size, layer_trt=2, layer_cov=2, layer_men=2, act_trt="linear", act_cov="linear", act_men="linear",
+                                   width_trt=20, width_cov=20, width_men=20, width_embed=5, cov_cancel=True, men_cancel=True):
 
         super().__init__()
 
         trt_dim, cov_dim = input_size
 
-        self.layer_trt, self.layer_cov = layer_trt, layer_cov
-        self.act_trt, self.act_cov = act_trt, act_cov
-        self.width_trt, self.width_cov, self.width_embed = width_trt, width_cov, width_embed
-        self.cov_cancel = cov_cancel
+        self.layer_trt, self.layer_cov, self.layer_men = layer_trt, layer_cov, layer_men
+        self.act_trt, self.act_cov, self.act_men = act_trt, act_cov, act_men
+        self.width_trt, self.width_cov, self.width_embed, self.width_men = width_trt, width_cov, width_embed, width_men
+        self.cov_cancel, self.men_cancel = cov_cancel, men_cancel
 
         # define treatment encoder
 
@@ -64,6 +64,21 @@ class DuoEncoderNet(nn.Module):
             self.cov_hidden.append(nn.BatchNorm1d(num_features=width_cov))
 
         self.cov_embed = nn.Linear(width_cov, width_embed)
+
+        # define mean effect network
+
+        if men_cancel:
+            self.men_co = CancelOut(cov_dim)
+
+        self.men_input = nn.Linear(cov_dim, width_men)
+
+        self.men_hidden = nn.ModuleList()
+
+        for _ in range(layer_men):
+            self.men_hidden.append(nn.Linear(width_men, width_men))
+            self.men_hidden.append(nn.BatchNorm1d(num_features=width_men))
+
+        self.men_output = nn.Linear(width_men, 1)
 
         
     def weighted_mse_loss(self, input, target, weight):
@@ -154,13 +169,45 @@ class DuoEncoderNet(nn.Module):
 
         return cov_embed
 
+    def mean_effect_network(self, X):
+
+        # mean effect network
+
+        if self.men_cancel:
+            men = self.men_co(X)
+            men = self.men_input(men)
+        else:
+            men = self.men_input(X)
+
+        if self.act_men == "relu":
+            men = F.relu(men)
+        elif self.act_men == "linear":
+            men = men
+
+        for index, layer in enumerate(self.men_hidden):
+            if index % 2 == 0:
+                men = layer(men)
+                break
+            elif index % 2 == 1:
+                men = layer(men)
+                if self.act_men == "relu":
+                    men = F.relu(men)
+                elif self.act_men == "linear":
+                    men = men
+        
+        men_output = self.men_output(men)
+
+        return men_output
+
     def forward(self, X, A):
 
         trt_embed = self.treatment_embed(A)
         
         cov_embed = self.covariate_embed(X)
         
-        output = torch.sum(torch.mul(trt_embed, cov_embed), dim=1)
+        men_output = self.mean_effect_network(X)
+
+        output = torch.sum(torch.mul(trt_embed, cov_embed) + men_output, dim=1)
 
         return output
     

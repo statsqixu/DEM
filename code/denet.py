@@ -27,8 +27,11 @@ class CancelOut(nn.Module):
 
 class DuoEncoderNet(nn.Module):
     
-    def __init__(self, input_size, layer_trt=2, layer_cov=2, layer_men=2, act_trt="linear", act_cov="linear", act_men="linear",
-                                   width_trt=20, width_cov=20, width_men=20, width_embed=5, cov_cancel=True, men_cancel=True):
+    def __init__(self, input_size, layer_trt=2, layer_cov=2, layer_men=2, 
+                        act_trt="linear", act_cov="linear", act_men="linear",
+                        width_trt=20, width_cov=20, width_men=20, width_embed=5, 
+                        cov_cancel=True, men_cancel=True,
+                        family="gaussian"):
 
         super().__init__()
 
@@ -38,6 +41,7 @@ class DuoEncoderNet(nn.Module):
         self.act_trt, self.act_cov, self.act_men = act_trt, act_cov, act_men
         self.width_trt, self.width_cov, self.width_embed, self.width_men = width_trt, width_cov, width_embed, width_men
         self.cov_cancel, self.men_cancel = cov_cancel, men_cancel
+        self.family = family
 
         # define treatment encoder
 
@@ -84,6 +88,12 @@ class DuoEncoderNet(nn.Module):
     def weighted_mse_loss(self, input, target, weight):
         
         return (weight * (input - target) ** 2).mean()
+
+    def weighted_crossentropy_loss(self, input, target, weight):
+        
+        loss_fn = nn.BCEWithLogitsLoss(weight=weight, reduction="mean")
+
+        return loss_fn(input, target)
 
     def treatment_weights(self, A):
 
@@ -214,13 +224,16 @@ class DuoEncoderNet(nn.Module):
     def training_step(self, batch):
         
         # load data
-        R, X, A, weight = batch
+        Y, X, A, weight = batch
         
         # generate prediction
         output = self(X, A)
-        
+
         # calculate loss
-        loss = self.weighted_mse_loss(output, R, weight)
+        if self.family == "gaussian":
+            loss = self.weighted_mse_loss(output, Y, weight)
+        elif self.family == "bernoulli":
+            loss = self.weighted_crossentropy_loss(output, Y, weight)
         
         return loss
     

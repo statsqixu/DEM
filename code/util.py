@@ -104,6 +104,9 @@ def getdata(sample_size, case=1, family="gaussian", seed=None):
         case 7: high-dim covariates, nonlinear, 2-channels
         case 8: high-dim covariates, nonlinear, 3-channels
 
+    family: {"gaussian", "bernoulli"}
+        outcome setting, "gaussian": continuous outcome, "bernoulli": binary outcome
+
     seed: int, default=None
         random generating seed
     """

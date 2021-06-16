@@ -31,7 +31,7 @@ class DuoEncoderNet(nn.Module):
                         act_trt="linear", act_cov="linear", act_men="linear",
                         width_trt=20, width_cov=20, width_men=20, width_embed=5, 
                         cov_cancel=True, men_cancel=True,
-                        family="gaussian"):
+                        family="gaussian", l1_lambda=0):
 
         super().__init__()
 
@@ -42,6 +42,7 @@ class DuoEncoderNet(nn.Module):
         self.width_trt, self.width_cov, self.width_embed, self.width_men = width_trt, width_cov, width_embed, width_men
         self.cov_cancel, self.men_cancel = cov_cancel, men_cancel
         self.family = family
+        self.l1_lambda = l1_lambda
 
         # define treatment encoder
 
@@ -94,6 +95,14 @@ class DuoEncoderNet(nn.Module):
         loss_fn = nn.BCEWithLogitsLoss(weight=weight, reduction="mean")
 
         return loss_fn(input, target)
+
+    def l1_penalty(self):
+
+        loss = 0
+        for param in self.parameters():
+            loss += torch.sum(torch.abs(param))
+
+        return loss
 
     def treatment_weights(self, A):
 
@@ -234,6 +243,11 @@ class DuoEncoderNet(nn.Module):
             loss = self.weighted_mse_loss(output, Y, weight)
         elif self.family == "bernoulli":
             loss = self.weighted_crossentropy_loss(output, Y, weight)
+
+        # l1 penalty
+
+        if self.l1_lambda > 0:
+            loss = loss + self.l1_lambda * self.l1_penalty()
         
         return loss
     

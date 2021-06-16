@@ -168,7 +168,7 @@ class MCITR():
                         depth_trt=2, depth_cov=2, depth_men=2, 
                         width_trt=20, width_cov=20, width_embed=5, width_men=20, 
                         cov_cancel=True, men_cancel=True,
-                        family="gaussian"):
+                        family="gaussian", l1_lambda=0):
         
         self.act_trt = act_trt
         self.act_cov = act_cov
@@ -183,6 +183,7 @@ class MCITR():
         self.cov_cancel = cov_cancel
         self.men_cancel = men_cancel
         self.family = family
+        self.l1_lambda = l1_lambda
         
 
     def fit(self, Y, X, A, scenario="ct", epochs=100, learning_rate=1e-3, verbose=0, opt_func=Adam, weight_decay=0.01, batch_size=32, device="default"):
@@ -254,7 +255,7 @@ class MCITR():
                             self.depth_cov, self.depth_men, self.act_trt,
                             self.act_cov, self.act_men, self.width_trt, 
                             self.width_cov, self.width_embed, self.width_men, 
-                            self.cov_cancel, self.men_cancel, self.family)
+                            self.cov_cancel, self.men_cancel, self.family, self.l1_lambda)
 
         self.model = self.model.to(self.device)
 

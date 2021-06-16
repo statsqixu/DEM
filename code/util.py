@@ -172,3 +172,68 @@ def getdata(sample_size, case=1, family="gaussian", seed=None):
     
     return Y, X, A, optA
 
+
+def getdata2(sample_size, case=1, family="gaussian", seed=None):
+
+    """
+    Simulation data generation (multi-armed setting)
+
+    parameters
+    ----------
+    sample_size: int
+        number of subjects to be generated
+    
+    case: {1, 2, 3}
+        three different scenarios to be considered
+
+    family: {"gaussian", "bernoulli"}
+        outcome setting, "gaussian": continuous outcome, "bernoulli": binary outcome
+
+    seed: int, default=None
+        random generating seed
+    """
+
+    if seed is not None:
+        np.random.seed(seed)
+    
+    X = np.random.uniform(low=-1, high=1, size=(sample_size, 6)) # covariates
+
+    A = np.random.choice([0, 1, 2, 3], size=(sample_size, )) # treatment
+
+    if case == 1:
+
+        delta = (1 + X[:, 0] + X[:, 1] + X[:, 2] + X[:, 3]) * (A == 0) + \
+                (1 + X[:, 0] - X[:, 1] - X[:, 2] + X[:, 3]) * (A == 1) + \
+                (1 + X[:, 0] - X[:, 1] + X[:, 2] - X[:, 3]) * (A == 2) + \
+                (1 - X[:, 0] - X[:, 1] + X[:, 2] + X[:, 3]) * (A == 3)
+
+    elif case == 2:
+
+        delta = (3 * (X[:, 0] <= 0.5) * ((X[:, 1] > -0.6) - 1)) * (A == 0) + \
+                ((X[:, 2] <= 1) * (2 * (X[:, 3] <= -0.3) - 1)) * (A == 1) + \
+                (4 * (X[:, 4] <= 0) - 2) * (A == 2) + \
+                (4 * (X[:, 5] <= 0) - 2) * (A == 3)
+
+    elif case == 3:
+
+        delta = (0.2 + X[:, 0] ** 2 + X[:, 1] ** 2 - X[:, 2] ** 2 - X[:, 3] ** 2) * (A == 0) + \
+                (0.2 + X[:, 1] ** 2 + X[:, 2] ** 2 - X[:, 1] ** 2 - X[:, 3] ** 2) * (A == 1) + \
+                (0.2 + X[:, 0] ** 2 + X[:, 3] ** 2 - X[:, 1] ** 2 - X[:, 2] ** 2) * (A == 2) + \
+                (0.2 + X[:, 1] ** 2 + X[:, 2] ** 2 - X[:, 0] ** 2 - X[:, 3] ** 2) * (A == 3)
+
+    mu = 1 + X[:, 0] + X[:, 1]
+
+    if family == "gaussian":
+
+        Y = mu + delta + np.random.normal(size=(sample_size, ))
+
+    elif family == "bernoulli":
+
+        p = 1 / (1 + np.exp(- mu - delta))
+        Y = np.random.binomial(1, p, size=(sample_size, ))
+
+    A_ = np.zeros((sample_size, len(np.unique(A))))
+    A_[np.arange(sample_size), A] = 1
+    A = A_
+
+    return Y, X, A

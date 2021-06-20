@@ -27,6 +27,10 @@ def _3_channel_trt(sample_size):
 
     return np.random.choice([0, 1], size=(sample_size, 3))
 
+def _5_channel_trt(sample_size):
+
+    return np.random.choice([0, 1], size=(sample_size, 5))
+
 def _2_channel_trt_embed(A):
 
     assert A.shape[1] == 2
@@ -59,6 +63,22 @@ def _3_channel_trt_embed(A):
 
     return beta
 
+def _5_channel_trt_embed(A):
+
+    assert A.shape[1] == 5
+
+    sample_size = A.shape[0]
+    beta = np.zeros((sample_size, 4))
+
+    np.random.seed(42)
+
+    A_unique = np.unique(A, axis=0)
+
+    for i in range(32):
+
+        beta[np.all(A == A_unique[i, :], axis=1), :] = np.random.multivariate_normal(np.zeros((4, )), 2 * np.eye(4))
+
+    return beta
 
 def _2_channel_cov_embed(X):
 
@@ -81,6 +101,16 @@ def _3_channel_cov_embed(X):
 
     return alpha
 
+def _5_channel_cov_embed(X):
+
+    sample_size = X.shape[0]
+    alpha = np.zeros((sample_size, 4))
+    alpha[:, 0] = (X[:, 0] ** 2 + X[:, 1] ** 3 - 1)
+    alpha[:, 1] = np.sin(np.pi * (X[:, 2] * X[:, 4]))
+    alpha[:, 2] = X[:, 4] ** 2 * (X[:, 1] >= 0)
+    alpha[:, 3] = np.exp(X[:, 1] * X[:, 2] - X[:, 3] ** 2) 
+
+    return alpha
 
 
 def getdata(sample_size, case=1, family="gaussian", seed=None):
@@ -237,3 +267,66 @@ def getdata2(sample_size, case=1, family="gaussian", seed=None):
     A = A_
 
     return Y, X, A
+
+
+def getdata3(sample_size, case=1, family="gaussian", seed=None):
+
+    """
+    Simulation data generation
+
+    parameters
+    ----------
+    sample_size: int
+        number of subjects to be generated
+    
+    case: {1, 2, ..., 8}
+        simulation case number
+        case 1: low-dim covariates, linear, 5-channels
+        case 2: low-dim covariates, nonlinear, 5-channels
+
+    family: {"gaussian", "bernoulli"}
+        outcome setting, "gaussian": continuous outcome, "bernoulli": binary outcome
+
+    seed: int, default=None
+        random generating seed
+    """
+
+    if seed is not None:
+        np.random.seed(seed)
+    
+    # treatment latent embedding
+    
+    X = _low_dim_cov(sample_size)
+
+    A = _5_channel_trt(sample_size)
+    beta = _5_channel_trt_embed(A)
+
+    if case == 1:
+
+        alpha = X[:, 0: 4]
+
+    elif case == 2:
+
+        alpha = _5_channel_cov_embed(X)
+
+
+    Y = 1 + X[:, 0] + X[:, 1] + np.sum(np.multiply(alpha, beta), axis=1)
+
+    if family == "gaussian":
+
+        Y = Y + np.random.normal(size=(sample_size, ))
+
+    elif family == "bernoulli":
+
+        Y = 1 / (1 + np.exp(- Y))
+
+        Y = np.random.binomial(1, Y, size=(sample_size, ))
+
+    A_unique, A_idx = np.unique(A, return_index=True, axis=0)
+    beta_unique = beta[A_idx, :]
+    trt_panel = alpha.dot(beta_unique.transpose())
+
+    _optA = np.argmax(trt_panel, axis=1)    
+    optA = A_unique[_optA, :]
+    
+    return Y, X, A, optA

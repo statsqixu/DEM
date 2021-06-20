@@ -1,3 +1,4 @@
+# simulation with cost constraint
 
 from util import getdata
 from mcitr import MCITR

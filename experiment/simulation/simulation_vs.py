@@ -1,5 +1,6 @@
+# simulation with variable selection
 
-from util import getdata
+from util import getdata, getdata3
 from mcitr import MCITR
 import numpy as np
 from multiprocessing import Pool
@@ -8,8 +9,8 @@ from functools import partial
 
 def run(seed, sample_size, case):
 
-    Y_train, X_train, A_train, optA_train = getdata(sample_size, case=case, seed=seed)
-    Y_test, X_test, A_test, optA_test = getdata(2000, case=case, seed=seed + 200)
+    Y_train, X_train, A_train, optA_train = getdata3(sample_size, case=case, seed=seed)
+    Y_test, X_test, A_test, optA_test = getdata3(2000, case=case, seed=seed + 200)
 
     mcitr = MCITR(depth_trt=3, depth_cov=3, width_trt=50, width_cov=50, width_embed=3, cov_cancel=False)
     history = mcitr.fit(Y_train, X_train, A_train, device="cpu", verbose=0, epochs=200)

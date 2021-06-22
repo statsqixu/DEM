@@ -127,12 +127,11 @@ def getdata(sample_size, case=1, family="gaussian", seed=None):
         simulation case number
         case 1: low-dim covariates, linear, 2-channels
         case 2: low-dim covariates, linear, 3-channels
-        case 3: low-dim covariates, nonlinear, 2-channels
-        case 4: low-dim covariates, nonlinear, 3-channels
-        case 5: high-dim covariates, linear, 2-channels
-        case 6: high-dim covariates, linear, 3-channels
-        case 7: high-dim covariates, nonlinear, 2-channels
-        case 8: high-dim covariates, nonlinear, 3-channels
+        case 3: low-dim covariates, linear, 5-channels
+        case 4: low-dim covariates, nonlinear, 2-channels
+        case 5: low-dim covariates, nonlinear, 3-channels
+        case 6: low-dim covariates, nonlinear, 5-channels
+        
 
     family: {"gaussian", "bernoulli"}
         outcome setting, "gaussian": continuous outcome, "bernoulli": binary outcome
@@ -144,41 +143,43 @@ def getdata(sample_size, case=1, family="gaussian", seed=None):
     if seed is not None:
         np.random.seed(seed)
     
-    # treatment latent embedding
-    
-    if case in [1, 2, 3, 4]:
+    X = _low_dim_cov(sample_size) 
 
-        X = _low_dim_cov(sample_size)
-
-    else: 
-
-        X = _high_dim_cov(sample_size)
-
-    if case in [1, 3, 5, 7]:
+    if case in [1, 4]:
 
         A = _2_channel_trt(sample_size)
         beta = _2_channel_trt_embed(A)
 
-    else:
+    elif case in [2, 5]:
 
         A = _3_channel_trt(sample_size)
         beta = _3_channel_trt_embed(A)
 
-    if case in [1, 5]:
+    elif case in [3, 6]:
+
+        A = _5_channel_trt(sample_size)
+        beta = _5_channel_trt_embed(A)
+
+
+    if case == 1:
 
         alpha = X[:, 0: 3]
 
-    elif case in [2, 6]:
+    elif case in [2, 3]:
 
         alpha = X[:, 0: 4]
 
-    elif case in [3, 7]:
+    elif case == 4:
 
         alpha = _2_channel_cov_embed(X)
 
-    else:
+    elif case == 5:
 
         alpha = _3_channel_cov_embed(X)
+
+    elif case == 6:
+
+        alpha = _5_channel_cov_embed(X)
 
 
     Y = 1 + X[:, 0] + X[:, 1] + np.sum(np.multiply(alpha, beta), axis=1)
@@ -268,65 +269,3 @@ def getdata2(sample_size, case=1, family="gaussian", seed=None):
 
     return Y, X, A
 
-
-def getdata3(sample_size, case=1, family="gaussian", seed=None):
-
-    """
-    Simulation data generation
-
-    parameters
-    ----------
-    sample_size: int
-        number of subjects to be generated
-    
-    case: {1, 2, ..., 8}
-        simulation case number
-        case 1: low-dim covariates, linear, 5-channels
-        case 2: low-dim covariates, nonlinear, 5-channels
-
-    family: {"gaussian", "bernoulli"}
-        outcome setting, "gaussian": continuous outcome, "bernoulli": binary outcome
-
-    seed: int, default=None
-        random generating seed
-    """
-
-    if seed is not None:
-        np.random.seed(seed)
-    
-    # treatment latent embedding
-    
-    X = _low_dim_cov(sample_size)
-
-    A = _5_channel_trt(sample_size)
-    beta = _5_channel_trt_embed(A)
-
-    if case == 1:
-
-        alpha = X[:, 0: 4]
-
-    elif case == 2:
-
-        alpha = _5_channel_cov_embed(X)
-
-
-    Y = 1 + X[:, 0] + X[:, 1] + np.sum(np.multiply(alpha, beta), axis=1)
-
-    if family == "gaussian":
-
-        Y = Y + np.random.normal(size=(sample_size, ))
-
-    elif family == "bernoulli":
-
-        Y = 1 / (1 + np.exp(- Y))
-
-        Y = np.random.binomial(1, Y, size=(sample_size, ))
-
-    A_unique, A_idx = np.unique(A, return_index=True, axis=0)
-    beta_unique = beta[A_idx, :]
-    trt_panel = alpha.dot(beta_unique.transpose())
-
-    _optA = np.argmax(trt_panel, axis=1)    
-    optA = A_unique[_optA, :]
-    
-    return Y, X, A, optA

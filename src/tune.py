@@ -1,5 +1,5 @@
-from mcitr import MCITR
-from util import getdata
+from src.mcitr import MCITR
+from src.util import getdata
 import pandas as pd
 from sklearn.model_selection import ParameterGrid
 

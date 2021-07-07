@@ -13,10 +13,10 @@ import numpy as np
 from sklearn.neural_network import MLPClassifier
 from sklearn.linear_model import LinearRegression
 
-from util import plot_train_history
-from denet import DuoEncoderNet, Trainer
-from container import ITRDataset
-from mckp import _mckp
+from src.util import plot_train_history
+from src.denet import DuoEncoderNet, Trainer
+from src.container import ITRDataset
+from src.mckp import _mckp
 
 
 ## some helper function for MCITR

@@ -28,12 +28,14 @@ def _mckp(trt_panel, cost, budget):
     m.objective = xsum(value[i] * x[i] for i in range(n_samples * n_combinations))
 
     m.verbose = 0
-    status = m.optimize(max_seconds=500)
+    status = m.optimize(max_seconds=10)
 
     #print(status)
 
     sol = np.array([v.x for v in m.vars])
     sol = np.reshape(sol, (n_samples, n_combinations))
+
+    del m
 
     return sol
 

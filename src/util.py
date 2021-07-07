@@ -73,10 +73,13 @@ def _5_channel_trt_embed(A):
     np.random.seed(42)
 
     A_unique = np.unique(A, axis=0)
+    A_unique_num = A_unique.shape[0]
 
-    for i in range(32):
+    for i in range(A_unique_num):
 
-        beta[np.all(A == A_unique[i, :], axis=1), :] = np.random.multivariate_normal(np.zeros((4, )), 2 * np.eye(4))
+        beta[np.all(A == A_unique[i, :], axis=1), :] = np.random.randint(low=-5, high=5, size=(4, ))
+
+    beta = beta - np.mean(beta, axis=0)
 
     return beta
 
@@ -116,7 +119,7 @@ def _5_channel_cov_embed(X):
 def getdata(sample_size, case=1, family="gaussian", seed=None):
 
     """
-    Simulation data generation
+    Simulation 1 data generation
 
     parameters
     ----------

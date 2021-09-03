@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 from torch.optim import Adam
 
 import numpy as np 
-from sklearn.neural_network import MLPClassifier
+from sklearn.neural_network import MLPClassifier, MLPRegressor
 from sklearn.linear_model import LinearRegression
 
 from src.util import plot_train_history
@@ -49,9 +49,9 @@ def _propensity_score(X, A, save_model=True):
 
 def _residual(Y, X, weight=None):
 
-    linreg = LinearRegression()
-    linreg.fit(X, Y, sample_weight=weight)
-    residual = Y - linreg.predict(X)
+    mlp = MLPRegressor(hidden_layer_sizes=16)
+    mlp.fit(X, Y)
+    residual = Y - mlp.predict(X)
 
     return residual
 
@@ -164,26 +164,17 @@ class MCITR():
 
     """
 
-    def __init__(self, act_trt="relu", act_cov="relu", act_men="relu", 
-                        depth_trt=2, depth_cov=2, depth_men=2, 
-                        width_trt=20, width_cov=20, width_embed=5, width_men=20, 
-                        cov_cancel=True, men_cancel=True,
-                        family="gaussian", l1_lambda=0):
+    def __init__(self, act_trt="relu", act_cov="relu", 
+                        depth_trt=2, depth_cov=2, 
+                        width_trt=20, width_cov=20, width_embed=5):
         
         self.act_trt = act_trt
         self.act_cov = act_cov
-        self.act_men = act_men
         self.depth_trt = depth_trt
         self.depth_cov = depth_cov
-        self.depth_men = depth_men
         self.width_trt = width_trt
         self.width_cov = width_cov
         self.width_embed = width_embed
-        self.width_men = width_men
-        self.cov_cancel = cov_cancel
-        self.men_cancel = men_cancel
-        self.family = family
-        self.l1_lambda = l1_lambda
         
 
     def fit(self, Y, X, A, scenario="ct", epochs=100, learning_rate=1e-3, verbose=0, opt_func=Adam, weight_decay=0.01, batch_size=32, device="default"):
@@ -252,12 +243,15 @@ class MCITR():
         n_samples = X.shape[0]
 
         self.model = DuoEncoderNet(input_dim, self.depth_trt, 
-                            self.depth_cov, self.depth_men, self.act_trt,
-                            self.act_cov, self.act_men, self.width_trt, 
-                            self.width_cov, self.width_embed, self.width_men, 
-                            self.cov_cancel, self.men_cancel, self.family, self.l1_lambda)
+                            self.depth_cov, self.act_trt,
+                            self.act_cov, self.width_trt, 
+                            self.width_cov, self.width_embed)
 
         self.model = self.model.to(self.device)
+
+        # compute residual
+
+        R = _residual(Y, X)
 
         # compute propensity score
 
@@ -275,12 +269,12 @@ class MCITR():
             self.prop_model = prop_model # used to predict propensity score for new data
 
         # create dataset to fit torch model
-        Y_tsr = torch.from_numpy(Y).float()
+        R_tsr = torch.from_numpy(R).float()
         X_tsr = torch.from_numpy(X).float()
         A_tsr = torch.from_numpy(A).float()
         W_tsr = torch.from_numpy(W).float()
 
-        dataset = ITRDataset(Y_tsr, X_tsr, A_tsr, W_tsr)
+        dataset = ITRDataset(R_tsr, X_tsr, A_tsr, W_tsr)
 
         loader = DataLoader(dataset, batch_size=batch_size)
 
@@ -424,51 +418,6 @@ class MCITR():
             output.append(val.numpy())
         
         return output
-
-
-    def realign_random(self, X, A, cost, budgets):
-
-        """
-        Random select samples to assign treatment to satisfy the budget constraint
-
-        Parameters
-        ----------
-        X: array-like of shape (n_samples, n_features)
-            pre-treatment covariate
-
-        A: array-like of shape (n_samples, n_channels)
-            multi-channel treatment
-
-        cost: array-like of shape (n_channels, )
-            cost for each treatment channel
-        
-        budgets: array-like of shape (n_channels,)
-            budget for each channels
-
-        """
-        n_channels = A.shape[1]
-
-        D = self.predict(X, A)
-
-        limit = np.divide(budgets, cost)
-
-        for c in range(n_channels):
-
-            if np.sum(D[:, c]) < limit[c]:
-                
-                pass
-
-            else: 
-
-                col = D[:, c]
-                idx = np.squeeze(np.argwhere(col == 1))
-
-                idx_select = np.random.choice(idx, size=(int(limit[c]), ))
-
-                D[:, c] = 0
-                D[idx_select, c] = 1
-
-        return D
 
     def realign_mckp(self, X, A, cost, budget):
 

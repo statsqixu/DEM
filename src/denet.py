@@ -10,39 +10,23 @@ import torch.nn as nn
 import torch.nn.functional as F 
 from torch.optim.lr_scheduler import ExponentialLR
 
-# cancel out layer
-class CancelOut(nn.Module):
-    '''
-    CancelOut Layer
-    
-    x - an input data (vector, matrix, tensor)
-    '''
-    def __init__(self,inp, *kargs, **kwargs):
-        super(CancelOut, self).__init__()
-        self.weights = nn.Parameter(torch.zeros(inp,requires_grad = True)+4)
-    def forward(self, x):
-        return (x * torch.sigmoid(self.weights.float()))
 
 # Define the network structure
 
 class DuoEncoderNet(nn.Module):
     
-    def __init__(self, input_size, layer_trt=2, layer_cov=2, layer_men=2, 
-                        act_trt="linear", act_cov="linear", act_men="linear",
-                        width_trt=20, width_cov=20, width_men=20, width_embed=5, 
-                        cov_cancel=True, men_cancel=True,
-                        family="gaussian", l1_lambda=0):
+    def __init__(self, input_size, layer_trt=2, layer_cov=2, 
+                        act_trt="linear", act_cov="linear", 
+                        width_trt=20, width_cov=20, width_embed=5, 
+                        ):
 
         super().__init__()
 
         trt_dim, cov_dim = input_size
 
-        self.layer_trt, self.layer_cov, self.layer_men = layer_trt, layer_cov, layer_men
-        self.act_trt, self.act_cov, self.act_men = act_trt, act_cov, act_men
-        self.width_trt, self.width_cov, self.width_embed, self.width_men = width_trt, width_cov, width_embed, width_men
-        self.cov_cancel, self.men_cancel = cov_cancel, men_cancel
-        self.family = family
-        self.l1_lambda = l1_lambda
+        self.layer_trt, self.layer_cov = layer_trt, layer_cov
+        self.act_trt, self.act_cov = act_trt, act_cov
+        self.width_trt, self.width_cov, self.width_embed = width_trt, width_cov, width_embed
 
         # define treatment encoder
 
@@ -56,9 +40,6 @@ class DuoEncoderNet(nn.Module):
         self.trt_embed = nn.Linear(width_trt, width_embed)
 
         # define covariate encoder
-
-        if cov_cancel:
-            self.cov_co = CancelOut(cov_dim)
     
         self.cov_input = nn.Linear(cov_dim, width_cov)
 
@@ -70,39 +51,11 @@ class DuoEncoderNet(nn.Module):
 
         self.cov_embed = nn.Linear(width_cov, width_embed)
 
-        # define mean effect network
-
-        if men_cancel:
-            self.men_co = CancelOut(cov_dim)
-
-        self.men_input = nn.Linear(cov_dim, width_men)
-
-        self.men_hidden = nn.ModuleList()
-
-        for _ in range(layer_men):
-            self.men_hidden.append(nn.Linear(width_men, width_men))
-            self.men_hidden.append(nn.BatchNorm1d(num_features=width_men))
-
-        self.men_output = nn.Linear(width_men, 1)
-
         
     def weighted_mse_loss(self, input, target, weight):
         
         return (weight * (input - target) ** 2).mean()
 
-    def weighted_crossentropy_loss(self, input, target, weight):
-        
-        loss_fn = nn.BCEWithLogitsLoss(weight=weight, reduction="mean")
-
-        return loss_fn(input, target)
-
-    def l1_penalty(self):
-
-        loss = 0
-        for param in self.parameters():
-            loss += torch.sum(torch.abs(param))
-
-        return loss
 
     def treatment_weights(self, A):
 
@@ -161,12 +114,7 @@ class DuoEncoderNet(nn.Module):
     def covariate_embed(self, X):
         
         # covaraite encoding
-
-        if self.cov_cancel:
-            cov = self.cov_co(X)
-            cov = self.cov_input(cov)
-        else:
-            cov = self.cov_input(X)
+        cov = self.cov_input(X)
 
         if self.act_cov == "relu":
             cov = F.relu(cov)
@@ -188,35 +136,6 @@ class DuoEncoderNet(nn.Module):
 
         return cov_embed
 
-    def mean_effect_network(self, X):
-
-        # mean effect network
-
-        if self.men_cancel:
-            men = self.men_co(X)
-            men = self.men_input(men)
-        else:
-            men = self.men_input(X)
-
-        if self.act_men == "relu":
-            men = F.relu(men)
-        elif self.act_men == "linear":
-            men = men
-
-        for index, layer in enumerate(self.men_hidden):
-            if index % 2 == 0:
-                men = layer(men)
-                break
-            elif index % 2 == 1:
-                men = layer(men)
-                if self.act_men == "relu":
-                    men = F.relu(men)
-                elif self.act_men == "linear":
-                    men = men
-        
-        men_output = self.men_output(men)
-
-        return men_output
 
     def forward(self, X, A):
 
@@ -224,30 +143,20 @@ class DuoEncoderNet(nn.Module):
         
         cov_embed = self.covariate_embed(X)
         
-        men_output = self.mean_effect_network(X)
-
-        output = torch.sum(torch.mul(trt_embed, cov_embed) + men_output, dim=1)
+        output = torch.sum(torch.mul(trt_embed, cov_embed), dim=1)
 
         return output
     
     def training_step(self, batch):
         
         # load data
-        Y, X, A, weight = batch
+        R, X, A, weight = batch
         
         # generate prediction
         output = self(X, A)
 
         # calculate loss
-        if self.family == "gaussian":
-            loss = self.weighted_mse_loss(output, Y, weight)
-        elif self.family == "bernoulli":
-            loss = self.weighted_crossentropy_loss(output, Y, weight)
-
-        # l1 penalty
-
-        if self.l1_lambda > 0:
-            loss = loss + self.l1_lambda * self.l1_penalty()
+        loss = self.weighted_mse_loss(output, R, weight)
         
         return loss
     

@@ -14,12 +14,12 @@ class ITRDataset(Dataset):
     
     def __init__(self, R, X, A, W):
         
-        self.output, self.covariate, self.treatment, self.weight = R, X, A, W
+        self.residual, self.covariate, self.treatment, self.weight = R, X, A, W
         
     def __len__(self):
-        return len(self.output)
+        return len(self.residual)
     
     def __getitem__(self, idx):
-        return self.output[idx], self.covariate[idx], self.treatment[idx], self.weight[idx]
+        return self.residual[idx], self.covariate[idx], self.treatment[idx], self.weight[idx]
 
 

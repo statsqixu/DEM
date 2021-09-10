@@ -406,3 +406,34 @@ def getdata3(sample_size, case=1, family="gaussian", seed=None):
     optA = A_unique[_optA, :]
     
     return Y, X, A, optA
+
+def getdata4(sample_size, case=1, seed=None):
+    
+    if seed is not None:
+
+        np.random.seed(seed)
+
+    X1 = np.random.normal(loc=-1.0, scale=0.2, size=(sample_size // 2, ))
+    X2 = np.random.normal(loc=1.0, scale=0.2, size=(sample_size // 2, ))
+    X = np.concatenate([X1, X2])
+
+    A = np.random.choice([0, 1], size=(sample_size, 2))
+
+    if case == 1:
+
+        Y = 1 + 2 * X + (X >= 0) * 5 * np.all(A == np.array([1, 1]), axis=1) - (X < 0) * 5 * np.all(A == np.array([1, 1]), axis=1) + \
+                        (X >= 0) * 3 * np.all(A == np.array([1, 0]), axis=1) + (X < 0) * 4 * np.all(A == np.array([1, 0]), axis=1) - \
+                        (X >= 0) * 8 * np.all(A == np.array([0, 1]), axis=1) + (X < 0) * 1 * np.all(A == np.array([0, 1]), axis=1)
+
+        optA = np.zeros((sample_size, 2))
+        for i in range(sample_size):
+
+            if X[i] >= 0:
+
+                optA[i, :] = np.array([1, 1])
+
+            elif X[i] < 0:
+
+                optA[i, :] = np.array([1, 0])
+
+    return Y, X, A, optA

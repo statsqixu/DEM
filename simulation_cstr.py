@@ -1,102 +1,117 @@
-# simulation with cost constraint
+# simulation with constraint budget
 
-from util import getdata
-from mcitr import MCITR
+from src.util import getdata
+from src.mcitr import MCITR
+from src.tune import tune_mcitr
 import numpy as np
-from multiprocessing import Pool
-from functools import partial
+from tqdm import tqdm
+
+## sample size: 200
+## act_cov: relu, act_men: linear, depth_trt: 5, depth_cov: 5, width: 10, width_embed: 5
+
+# def main():
+
+#     accuracy_array = np.zeros((200, 6))
+#     value_array = np.zeros((200, 6))
+
+#     for seed in tqdm(range(200)):
+
+#         Y_train, X_train, A_train, optA_train = getdata(200, case=5, seed=seed)
+#         Y_test, X_test, A_test, optA_test = getdata(2000, case=5, seed=seed + 200)
+
+#         mcitr = MCITR(act_cov="relu", act_men="linear", depth_cov=5, depth_trt=5, width_cov=10, width_trt=10, width_embed=5, cov_cancel=False, men_cancel=False)
+#         history = mcitr.fit(Y_train, X_train, A_train, device="cpu", verbose=0, learning_rate=1e-2)
+
+#         channel_cost = np.array([0, 1, 0])
+#         A_test_uq = np.unique(A_test, axis=0)
+
+#         combination_cost = A_test_uq.dot(channel_cost)
+#         total_cost = np.sum(optA_test.dot(channel_cost))
+#         budgets = np.array([0.2, 0.4, 0.6, 0.8, 1.0, 1.2]) * total_cost
+
+#         for i in range(6):
+
+#             D = mcitr.realign_mckp(X_test, A_test, combination_cost, budgets[i])
+
+#             accuracy, value = mcitr.evaluate(Y_test, A_test, D, X_test, optA=optA_test)
+
+#             accuracy_array[seed, i] = accuracy
+#             value_array[seed, i] = value
+
+#     np.savetxt("simulation_2_size_200_accuracy.txt", accuracy_array)
+#     np.savetxt("simulation_2_size_200_value.txt", value_array)
+
+## sample size: 400
+# act_cov: relu, act_men: relu, depth_trt: 3, depth_cov: 3, width: 256, width_embed: 16
+
+# def main():
+
+#     accuracy_array = np.zeros((200, 6))
+#     value_array = np.zeros((200, 6))
+
+#     for seed in tqdm(range(200)):
+
+#         Y_train, X_train, A_train, optA_train = getdata(400, case=5, seed=seed)
+#         Y_test, X_test, A_test, optA_test = getdata(2000, case=5, seed=seed + 200)
+
+#         mcitr = MCITR(act_cov="relu", act_men="relu", depth_cov=3, depth_trt=3, width_cov=256, width_trt=256, width_embed=16, cov_cancel=False, men_cancel=False)
+#         history = mcitr.fit(Y_train, X_train, A_train, device="cpu", verbose=0, learning_rate=1e-2)
+
+#         channel_cost = np.array([0, 1, 0])
+#         A_test_uq = np.unique(A_test, axis=0)
+
+#         combination_cost = A_test_uq.dot(channel_cost)
+#         total_cost = np.sum(optA_test.dot(channel_cost))
+#         budgets = np.array([0.2, 0.4, 0.6, 0.8, 1.0, 1.2]) * total_cost
+
+#         for i in range(6):
+
+#             D = mcitr.realign_mckp(X_test, A_test, combination_cost, budgets[i])
+
+#             accuracy, value = mcitr.evaluate(Y_test, A_test, D, X_test, optA=optA_test)
+
+#             accuracy_array[seed, i] = accuracy
+#             value_array[seed, i] = value
 
 
-def run(seed, sample_size, case, cost_combinations, budget_combinations, cost_channels, budget_channels):
+#     np.savetxt("simulation_2_size_400_accuracy.txt", accuracy_array)
+#     np.savetxt("simulation_2_size_400_value.txt", value_array)
 
-    Y_train, X_train, A_train, optA_train = getdata(sample_size, case=case, seed=seed)
-    Y_test, X_test, A_test, optA_test = getdata(2000, case=case, seed=seed + 200)
-
-    mcitr = MCITR()
-    history = mcitr.fit(Y_train, X_train, A_train, device="cpu", verbose=0, epochs=200)
-
-    D_test = mcitr.predict(X_test, A_test)
-
-    accuracy1, value1 = mcitr.evaluate(Y_test, A_test, D_test, X_test, optA_test)
-
-    D_test_mckp = mcitr.realign_mckp(X_test, A_test, cost_combinations, budget_combinations)
-
-    accuracy2, value2 = mcitr.evaluate(Y_test, A_test, D_test_mckp, X_test, optA_test)
-
-    D_test_mask = mcitr.realign_mask(X_test, A_test, cost_combinations, budget_combinations)
-
-    accuracy3, value3 = mcitr.evaluate(Y_test, A_test, D_test_mask, X_test, optA_test)
-
-    D_test_rdm = mcitr.realign_random(X_test, A_test, cost_channels, budget_channels)
-
-    accuracy4, value4 = mcitr.evaluate(Y_test, A_test, D_test_rdm, X_test, optA_test)
-
-    return accuracy1, value1, accuracy2, value2, accuracy3, value3, accuracy4, value4
-
+## sample size: 800
+# act_cov: relu, act_men: relu, depth_trt: 3, depth_cov: 3, width: 256, width_embed: 16
 
 def main():
 
-    # 2-channel simulation 
+    accuracy_array = np.zeros((200, 6))
+    value_array = np.zeros((200, 6))
 
-    sample_size_list = [200, 400, 800, 2000] # training sample size
-    case_list = [1, 2, 3, 4] # data generation cases
-    seed_list = np.arange(200) # 200 replicate for each simulation setting
-    quantile_list = [0.1, 0.2, 0.3, 0.4, 0.5]
+    for seed in tqdm(range(200)):
 
-    accuracy_list = np.zeros((4, 4, 200, 5, 4))
-    value_list = np.zeros((4, 4, 200, 5, 4))
+        Y_train, X_train, A_train, optA_train = getdata(800, case=5, seed=seed)
+        Y_test, X_test, A_test, optA_test = getdata(2000, case=5, seed=seed + 200)
 
-    
-    for iss, sample_size in enumerate(sample_size_list):
+        mcitr = MCITR(act_cov="relu", act_men="relu", depth_cov=3, depth_trt=3, width_cov=256, width_trt=256, width_embed=16, cov_cancel=False, men_cancel=False)
+        history = mcitr.fit(Y_train, X_train, A_train, device="cpu", verbose=0, learning_rate=1e-2)
 
-        print("---- sample size: {0} ----".format(sample_size))
+        channel_cost = np.array([0, 1, 0])
+        A_test_uq = np.unique(A_test, axis=0)
 
-        for ic, case in enumerate(case_list):
+        combination_cost = A_test_uq.dot(channel_cost)
+        total_cost = np.sum(optA_test.dot(channel_cost))
+        budgets = np.array([0.2, 0.4, 0.6, 0.8, 1.0, 1.2]) * total_cost
 
-            print("---- case number: {0} ----".format(case))
+        for i in range(6):
 
-            for iq, quantile in enumerate(quantile_list):
+            D = mcitr.realign_mckp(X_test, A_test, combination_cost, budgets[i])
 
-                print("---- quantile: {0} ----".format(quantile))
+            accuracy, value = mcitr.evaluate(Y_test, A_test, D, X_test, optA=optA_test)
 
-                if case in [1, 3, 5, 7]:
-
-                    cost_channels = [1, 1]
-                    cost_combinations = [0, 0, 1, 1]
-
-                    budget_channels = [2000 * quantile, 2000 * 2]
-                    budget_combinations = 2000 * quantile
-
-                elif case in [2, 4, 6, 8]:
-                    
-                    cost_channels = [1, 1, 1]
-                    cost_combinations = [0, 0, 0, 0, 1, 1, 1, 1]
-
-                    budget_channels = [2000 * quantile, 2000 * 2, 2000 * 2]
-                    budget_combinations = 2000 * quantile
-
-                with Pool(8) as p:
-                    run_part = partial(run, sample_size=sample_size, case=case, 
-                                        cost_combinations=cost_combinations,
-                                        budget_combinations=budget_combinations,
-                                        cost_channels=cost_channels,
-                                        budget_channels=budget_channels)
-                    accuracy1_list, value1_list, accuracy2_list, value2_list, accuracy3_list, value3_list, accuracy4_list, value4_list = zip(*p.map(run_part, seed_list))
-
-                    accuracy_list[iss, ic, :, iq, 0] = accuracy1_list
-                    accuracy_list[iss, ic, :, iq, 1] = accuracy2_list
-                    accuracy_list[iss, ic, :, iq, 2] = accuracy3_list
-                    accuracy_list[iss, ic, :, iq, 3] = accuracy4_list
-
-                    value_list[iss, ic, :, iq, 0] = value1_list
-                    value_list[iss, ic, :, iq, 1] = value2_list
-                    value_list[iss, ic, :, iq, 2] = value3_list
-                    value_list[iss, ic, :, iq, 3] = value4_list
-
-                np.save("accuracy_cstr", accuracy_list)
-                np.save("value_cstr", value_list)
+            accuracy_array[seed, i] = accuracy
+            value_array[seed, i] = value
 
 
+    np.savetxt("simulation_2_size_800_accuracy.txt", accuracy_array)
+    np.savetxt("simulation_2_size_800_value.txt", value_array)
 
 if __name__ == "__main__":
     

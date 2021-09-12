@@ -1,6 +1,6 @@
-# MCITR
+# IOTR
 
-## Python implementation of Multi-Channel Individualized Treatment Rule
+## Python implementation of Individualized Omnichannel Treatment Rule
 
 - Package Requirement
 ```

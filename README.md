@@ -12,43 +12,31 @@ matplotlib	version 3.4.1
 
 - Demo
 ```
-from mcitr from MCITR
+from src.util import getdata
+from src.mcitr import MCITR
 import numpy as np
-import matplotlib.pyplot as plt
-import torch
 
-Y, X, A, optA = getdata(500, case=1, seed=1)
 
-mcitr = MCITR(depth_trt=3, depth_cov=3, width_trt=50, width_cov=50, width_embed=3, cov_cancel=True)
-history = mcitr.fit(Y, X, A, device="cpu", verbose=0, epochs=50, learning_rate=5e-2)
+## demo
 
-D = mcitr.predict(X, A)
-accuracy, value = mcitr.evaluate(Y, A, D, X, optA)
+def demo():
 
-print("---- Unconstrained ----")
-print("----accuracy: {0}----".format(accuracy))
-print("----value: {0}----".format(value))
+    Y_train, X_train, A_train, optA_train = getdata(200, case=1, seed=0, family="gaussian")
+    Y_test, X_test, A_test, optA_test = getdata(2000, case=1, seed=200, family="gaussian")
 
-cost = np.array([0, 0, 1, 1])
+    mcitr = MCITR(act_trt="relu", act_cov="relu", depth_trt=5, depth_cov=5, width_trt=256, width_cov=256, width_embed=8)
+    history = mcitr.fit(Y_train, X_train, A_train, device="cpu", verbose=1, epochs=500, learning_rate=0.001)
 
-budgets = 20
+    D = mcitr.predict(X_test, A_test)
+    accuracy, value = mcitr.evaluate(Y_test, A_test, D, X_test, optA_test)
+    
+    print("---- Unconstrained ----")
+    print("---- accuracy: {0} ----".format(accuracy))
+    print("---- value: {0} ----".format(value))    
 
-D = mcitr.realign_mckp(X, A, cost = cost, budget=budgets)
-accuracy, value = mcitr.evaluate(Y, A, D, X, optA)
+if __name__ == "__main__":
 
-print("---- MCKP ----")
-print("----accuracy: {0}----".format(accuracy))
-print("----value: {0}----".format(value))
-
-cost_channels = [1, 1]
-budget_channels = [20, 500]
-
-D = mcitr.realign_random(X, A, cost_channels, budget_channels)
-accuracy, value = mcitr.evaluate(Y, A, D, X, optA)
-
-print("---- Random ----")
-print("----accuracy: {0}----".format(accuracy))
-print("----value: {0}----".format(value))
+    demo()
 ```
 
 

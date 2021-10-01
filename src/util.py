@@ -423,7 +423,8 @@ def getdata4(sample_size, case=1, seed=None):
 
         Y = 1 + 2 * X + (X >= 0) * 5 * np.all(A == np.array([1, 1]), axis=1) - (X < 0) * 5 * np.all(A == np.array([1, 1]), axis=1) + \
                         (X >= 0) * 3 * np.all(A == np.array([1, 0]), axis=1) + (X < 0) * 4 * np.all(A == np.array([1, 0]), axis=1) - \
-                        (X >= 0) * 8 * np.all(A == np.array([0, 1]), axis=1) + (X < 0) * 1 * np.all(A == np.array([0, 1]), axis=1)
+                        (X >= 0) * 8 * np.all(A == np.array([0, 1]), axis=1) + (X < 0) * 1 * np.all(A == np.array([0, 1]), axis=1) + \
+            np.random.normal(loc=0, scale=1, size=(sample_size))
 
         optA = np.zeros((sample_size, 2))
         for i in range(sample_size):

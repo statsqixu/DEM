@@ -13,7 +13,7 @@ def demo():
     Y_test, X_test, A_test, optA_test = getdata(2000, case=1, seed=200, family="gaussian")
 
     mcitr = MCITR(act_trt="relu", act_cov="relu", depth_trt=5, depth_cov=5, width_trt=256, width_cov=256, width_embed=8)
-    history = mcitr.fit(Y_train, X_train, A_train, device="cpu", verbose=1, epochs=500, learning_rate=0.001)
+    history = mcitr.fit(Y_train, X_train, A_train, device="cpu", verbose=1, epochs=100, learning_rate=0.001)
 
     D = mcitr.predict(X_test, A_test)
     accuracy, value = mcitr.evaluate(Y_test, A_test, D, X_test, optA_test)

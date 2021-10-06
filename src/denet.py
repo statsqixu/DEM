@@ -31,23 +31,23 @@ class DuoEncoderNet(nn.Module):
 
         # define treatment encoder
 
-        self.trt_input = spectral_norm(nn.Linear(trt_dim, width_trt))
+        self.trt_input = nn.Linear(trt_dim, width_trt)
 
         self.trt_hidden = nn.ModuleList()
         for i in range(layer_trt):
-            self.trt_hidden.append(spectral_norm(nn.Linear(width_trt, width_trt)))
+            self.trt_hidden.append(nn.Linear(width_trt, width_trt))
             self.trt_hidden.append(nn.BatchNorm1d(num_features=width_trt))
 
         self.trt_embed = nn.Linear(width_trt, width_embed)
 
         # define covariate encoder
     
-        self.cov_input = spectral_norm(nn.Linear(cov_dim, width_cov))
+        self.cov_input = nn.Linear(cov_dim, width_cov)
 
         self.cov_hidden = nn.ModuleList()
         
         for _ in range(layer_cov):
-            self.cov_hidden.append(spectral_norm(nn.Linear(width_cov, width_cov)))
+            self.cov_hidden.append(nn.Linear(width_cov, width_cov))
             self.cov_hidden.append(nn.BatchNorm1d(num_features=width_cov))
 
         self.cov_embed = nn.Linear(width_cov, width_embed)

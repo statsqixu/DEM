@@ -10,6 +10,16 @@ def plot_train_history(history):
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
 
+def _categorical_treatment(A):
+    
+    """
+    Create categorical representation of multi-channel treatment
+    """
+
+    _, A_cate = np.unique(A, return_inverse=True, axis=0)
+
+    return A_cate
+
 
 def _low_dim_cov(sample_size):
 
@@ -438,3 +448,102 @@ def getdata4(sample_size, case=1, seed=None):
                 optA[i, :] = np.array([1, 0])
 
     return Y, X, A, optA
+
+
+def getdata5(sample_size, seed=None):
+
+    if seed is not None:
+
+        np.random.seed(seed)
+
+    X = _low_dim_cov(sample_size)
+    A = np.random.choice([0, 1], size=(sample_size, 3))
+    A_cat = _categorical_treatment(A)
+
+    delta = (X[:, 0] + X[:, 1] - X[:, 2] - X[:, 3]) * (A_cat == 1) + \
+            (X[:, 0] - X[:, 1] + X[:, 2] - X[:, 3]) * (A_cat == 2) + \
+            (- X[:, 0] + X[:, 1] - X[:, 2] + X[:, 3]) * (A_cat == 4) + \
+            (2 * X[:, 0] - 2 * X[:, 3] + 4 * X[:, 4] ** 2 ) * (A_cat == 3) + \
+            (2 * X[:, 1] - 2 * X[:, 2] - np.exp(2 * X[:, 2])) * (A_cat == 5) + \
+            (6 * X[:, 1] * X[:, 2]) * (A_cat == 6) + \
+            (X[:, 0] + X[:, 1] - X[:, 2] - X[:, 3]) * (A_cat == 7)
+
+    trt_panel = np.array([
+        np.zeros((sample_size, )),
+        (X[:, 0] + X[:, 1] - X[:, 2] - X[:, 3]),
+        (X[:, 0] - X[:, 1] + X[:, 2] - X[:, 3]),
+        (2 * X[:, 0] - 2 * X[:, 3] + 4 * X[:, 4] ** 2 ),
+        (- X[:, 0] + X[:, 1] - X[:, 2] + X[:, 3]),
+        (2 * X[:, 1] - 2 * X[:, 2] - np.exp(2 * X[:, 2])),
+        (6 * X[:, 1] * X[:, 2]),
+        (X[:, 0] + X[:, 1] - X[:, 2] - X[:, 3])
+    ])
+    
+    mu = 1 + X[:, 0]
+
+    Y = mu + delta + np.random.normal(scale=0.1, size=(sample_size, ))
+
+    A_unique = np.unique(A, axis=0)
+    _optA = np.argmax(trt_panel, axis=0)
+    optA = A_unique[_optA, :]
+
+    return Y, X, A, optA
+
+def getdata6(sample_size, seed=None):
+
+    if seed is not None:
+    
+        np.random.seed(seed)
+
+    X = _low_dim_cov(sample_size)
+    A = np.random.choice([0, 1], size=(sample_size, 4))
+
+    Beta = np.array([[1, -2, 1, 0],
+                     [2, 0, -1, -1],
+                     [-1, 2, 1, -2],
+                     [0, 1, 2, -3]])
+
+    Alpha = X[:, 0:4]
+    mu = 1 + X[:, 0]
+
+    Y = mu + np.sum(np.multiply(Alpha, A.dot(Beta.transpose())), axis=1) + np.random.normal(scale=1, size=(sample_size, ))
+
+    A_unique = np.unique(A, axis=0)
+    Beta_cate = A_unique.dot(Beta.transpose())
+    trt_panel = Alpha.dot(Beta_cate.transpose())
+
+    _optA = np.argmax(trt_panel, axis=1)
+    optA = A_unique[_optA, :]
+
+    return Y, X, A, optA
+
+# def getdata7(sample_size, seed=None):
+
+#     if seed is not None:
+
+#         np.random.seed(seed)
+
+#     X = _low_dim_cov(sample_size)
+#     A = np.random.choice([0, 1], size=(sample_size, 4))
+#     A_cat = _categorical_treatment(A)
+#     A_ind = np.zeros((sample_size, 16))
+#     A_ind[np.arange(sample_size), A_cat] = 1
+
+#     trt_panel = np.array([
+#         np.exp(X[:, 0]), np.exp(X[:, 1]), np.exp(X[:, 2]), np.exp(X[:, 3]),
+#         X[:, 0] ** 2, X[:, 1] ** 2, X[:, 2] ** 2, X[:, 3] ** 2,
+#         X[:, 0] ** 3, X[:, 1] ** 3, X[:, 2] ** 3, X[:, 3] ** 3,
+#         np.sin(X[:, 0]), np.sin(X[:, 1]), np.sin(X[:, 2]), np.sin(X[:, 3])
+#     ]).transpose()
+
+#     trt_panel = trt_panel - np.mean(trt_panel, axis=0)
+
+#     Y = 1 + X[:, 0] + np.sum(np.multiply(trt_panel, A_ind), axis=1) + np.random.normal(scale=1, size=(sample_size, ))
+
+#     A_unique = np.unique(A, axis=0)
+#     _optA = np.argmax(trt_panel, axis=1)
+#     optA = A_unique[_optA, :]
+
+#     return Y, X, A, optA
+
+

@@ -47,12 +47,17 @@ def _propensity_score(X, A, save_model=True):
 
         return prop
 
-def _residual(Y, X, weight=None):
+def _residual(Y, X, model="linear"):
 
-    mlp = MLPRegressor(hidden_layer_sizes=16)
-    mlp.fit(X, Y)
-    residual = Y - mlp.predict(X)
-
+    if model == "nn":
+        mlp = MLPRegressor(hidden_layer_sizes=16)
+        mlp.fit(X, Y)
+        residual = Y - mlp.predict(X)
+    elif model == "linear":
+        lr = LinearRegression()
+        lr.fit(X, Y)
+        residual = Y - lr.predict(X)
+    
     return residual
 
 
@@ -300,6 +305,20 @@ class MCITR():
             plot_train_history(history)
 
         return history
+
+    def get_trt_panel(self, X, A):
+
+        X_tsr = torch.from_numpy(X).float().to(self.device)
+        A_tsr = torch.from_numpy(A).float().to(self.device)
+
+        A_unique = torch.unique(A_tsr, dim=0)
+        cov_embed = self.model.covariate_embed(X_tsr)
+        trt_embed = self.model.treatment_embed(A_unique)
+        
+        trt_panel = torch.matmul(cov_embed, torch.transpose(trt_embed, dim0=0, dim1=1))
+
+        return trt_panel.detach().numpy()
+
 
 
     def predict(self, X, A):

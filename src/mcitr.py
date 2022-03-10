@@ -1,5 +1,5 @@
 """
-Multi-channel Individualized Treatment Rule
+Individualized Omni-channel Treatment Rule
 """
 
 # Author: Qi Xu <qxu6@uci.edu>

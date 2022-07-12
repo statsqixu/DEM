@@ -40,14 +40,3 @@ accuracy, value = mcitr.evaluate(Y, A, D, X, optA)
 print("----accuracy: {0}----".format(accuracy))
 print("----value: {0}----".format(value))
 ```
-
-- Done
-- [X] Estimate optimal MCITR using embedding inner-product networks
-- [X] Estimate constrained MCITR with multi-choice knapsack (MCKP)
-
-- To Do List
-- [ ] Stabilize small weights for propensity scores
-- [ ] Doubly robust estimator
-- [ ] Theory:
-	- [ ] Statistical Optimality
-	- [ ] Equivalence between proposed rotational framework and discrete problem

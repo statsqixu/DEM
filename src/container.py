@@ -4,22 +4,20 @@ ITR Dataset
 
 # Author: Qi Xu <qxu6@uci.edu>
 
-
-
 from torch.utils.data import Dataset
 
 
 # Define the dataset
 class ITRDataset(Dataset):
     
-    def __init__(self, R, X, A, W):
+    def __init__(self, X, A, Y, W):
         
-        self.residual, self.covariate, self.treatment, self.weight = R, X, A, W
+        self.covariate, self.treatment, self.outcome, self.weight = X, A, Y, W
         
     def __len__(self):
-        return len(self.residual)
+        return len(self.outcome)
     
     def __getitem__(self, idx):
-        return self.residual[idx], self.covariate[idx], self.treatment[idx], self.weight[idx]
+        return self.covariate[idx], self.treatment[idx], self.outcome[idx], self.weight[idx]
 
 

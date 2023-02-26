@@ -1,7 +1,5 @@
 # Optimal Individualized Treatment Rule for Combination Treatment
 
-# author: Qi Xu <qxu6@uci.edu>
-
 - Package Requirement
 ```
 numpy		1.22.2

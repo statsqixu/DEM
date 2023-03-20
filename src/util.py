@@ -482,4 +482,27 @@ def estimate_treatment_free(X, Y, model="linear"):
 
     return Y_pred
 
-    
+def multi_choice_knapsack(trt_panel, cost, budget):
+
+    n, K = trt_panel.shape
+    dp = np.zeros((n + 1, budget + 1))
+
+    for i in range(1, n + 1):
+        for j in range(budget + 1):
+            dp[i, j] = dp[i - 1, j]
+            for k in range(K):
+                if j >= cost[k]:
+                    dp[i, j] = max(dp[i, j], dp[i - 1, j - cost[k]] + trt_panel[i - 1, k])
+
+    # Backtrack to find the chosen treatments
+    chosen_trts = np.zeros((n, K), dtype=int)
+    remaining_budget = budget
+
+    for i in range(n, 0, -1):
+        for k in range(K):
+            if remaining_budget >= cost[k] and dp[i, remaining_budget] == dp[i - 1, remaining_budget - cost[k]] + trt_panel[i - 1, k]:
+                chosen_trts[i - 1, k] = 1
+                remaining_budget -= cost[k]
+                break
+
+    return chosen_trts

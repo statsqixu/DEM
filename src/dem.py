@@ -10,6 +10,7 @@ from torch.optim import Adam
 
 from src.container import ITRDataset
 from src.util import *
+from src.util import multi_choice_knapsack
 
 # Define the Double Encoder Model
 
@@ -620,3 +621,33 @@ class ITR():
 
         return output
     
+    def mckp(self, X, A, cost, budget):
+
+        """
+        solve the budget constraint problem with MCKP
+
+        Parameters
+        -----------
+        X: array-like of shape (n_samples, n_features)
+            pre-treatment covariate
+
+        A: array-like of shape (n_samples, n_channels)
+            multi-channel treatment
+
+        cost: array-like of shape (n_combinations, )
+            cost for each treatment combination
+
+        budgets: float
+            total budget over population
+        """
+    
+        trt_panel = self.get_trt_panel(X, A)
+        trt_panel = trt_panel.cpu().numpy()
+        
+        sol = multi_choice_knapsack(trt_panel, cost, budget)
+
+        A_unique = np.unique(A, axis=0)
+
+        D = A_unique[sol]
+
+        return D
